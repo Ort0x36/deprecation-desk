@@ -228,9 +228,21 @@ def render(results: List[UpstreamResult], today: date, limit: int = 12) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def exit_code(results: List[UpstreamResult]) -> int:
+def exit_code(results: List[UpstreamResult], strict: bool = False) -> int:
+    """1 means a page moved. Anything looser makes the weekly alarm useless.
+
+    The review queue (identifiers the page names and the catalog does not) is
+    a standing condition, not an event: the OpenAI page alone names 35 of them
+    and always will, because a deprecation page also lists models that are not
+    being deprecated. Exiting 1 on that turned the scheduled job into an issue
+    every Monday saying the pages changed when they had not, which is how an
+    alarm stops being read. A model that genuinely starts being deprecated
+    changes the page, and that is what `changed` already catches.
+    """
     if any(not r.ok for r in results):
         return 3
-    if any(r.changed or r.new_on_page for r in results):
+    if any(r.changed for r in results):
+        return 1
+    if strict and any(r.new_on_page or r.missing_from_page for r in results):
         return 1
     return 0

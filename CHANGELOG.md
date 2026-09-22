@@ -8,7 +8,8 @@ First public release.
   endpoints and products, and exits with a code CI can act on.
 - `depdesk upstream`: compares the provider deprecation pages against the
   catalog and reports what appeared or disappeared, without pretending to
-  parse them into a catalog by itself.
+  parse them into a catalog by itself. It fails only when a page actually
+  moved; `--strict` also fails on identifiers the catalog does not mention.
 - `depdesk list`: prints the catalog.
 - `--exclude` globs and a `depdesk: ignore` line marker, so prose that names
   a dead model on purpose does not have to be a finding forever.

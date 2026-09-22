@@ -23,7 +23,11 @@ retires, which is the exact failure this tool exists to prevent. So:
 - `verified_on` is what the tool shows to users and what ages. Update it.
 
 If the drift job itself starts failing every week (a page moved for good, a
-fetch keeps timing out), fix the source entry rather than muting the job.
+fetch keeps timing out), fix the source entry rather than muting the job. The
+first manual run of it opened an issue while both pages were unchanged: the
+exit code counted the review queue as drift. Any change to `exit_code` in
+`upstream.py` deserves the same suspicion, because the cost of being wrong
+there is an alarm nobody reads.
 
 ## Cutting a release
 

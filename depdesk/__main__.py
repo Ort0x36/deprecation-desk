@@ -105,6 +105,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--save", action="store_true", help="record the current fingerprints in the catalog"
     )
     upstream_parser.add_argument("--json", action="store_true")
+    upstream_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="also exit 1 when the page names identifiers the catalog does not, "
+             "which is a standing difference rather than a change",
+    )
 
     list_parser = sub.add_parser("list", help="print the catalog")
     list_parser.add_argument("--catalog", metavar="FILE")
@@ -205,7 +211,7 @@ def cmd_upstream(args: argparse.Namespace) -> int:
         print(f"depdesk: fingerprints written to {catalog.path}", file=sys.stderr)
         return 0
 
-    return upstream_exit_code(results)
+    return upstream_exit_code(results, strict=args.strict)
 
 
 def cmd_list(args: argparse.Namespace) -> int:

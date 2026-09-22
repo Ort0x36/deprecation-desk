@@ -13,7 +13,7 @@ from depdesk import catalog as catalog_mod  # noqa: E402
 from depdesk.__main__ import main  # noqa: E402
 from depdesk.report import build, render_json, render_text  # noqa: E402
 from depdesk.scan import scan  # noqa: E402
-from depdesk.upstream import fingerprint  # noqa: E402
+from depdesk.upstream import UpstreamResult, exit_code, fingerprint  # noqa: E402
 from depdesk.usage import load_usage, share  # noqa: E402
 
 TODAY = date(2026, 9, 20)
@@ -258,3 +258,28 @@ def test_exclude_glob_skips_matching_files(tmp_path):
 
     by_name = scan([tmp_path], cat, exclude_globs=["history.md"])
     assert {hit.identifier for hit in by_name.hits} == {"claude-opus-4-1-20250805"}
+
+
+def _result(**kwargs) -> UpstreamResult:
+    base = dict(provider="openai", url="https://example.invalid", ok=True, changed=False)
+    base.update(kwargs)
+    return UpstreamResult(**base)
+
+
+def test_review_queue_alone_is_not_drift():
+    # The OpenAI page names 35 identifiers the catalog does not, and always
+    # will, because a deprecation page also lists models that are not being
+    # deprecated. Exiting 1 on that opened an issue every Monday saying the
+    # pages had changed when they had not.
+    results = [_result(new_on_page=["gpt-4-turbo-preview"], missing_from_page=["omni-moderation"])]
+    assert exit_code(results) == 0
+    assert exit_code(results, strict=True) == 1
+
+
+def test_a_moved_page_is_drift():
+    assert exit_code([_result(changed=True)]) == 1
+    assert exit_code([_result(changed=False)]) == 0
+
+
+def test_a_failed_fetch_beats_everything():
+    assert exit_code([_result(ok=False, error="timeout"), _result(changed=True)]) == 3
