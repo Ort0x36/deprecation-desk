@@ -10,20 +10,33 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "Wendel Ortiz" }]
-keywords = ["llm", "deprecation", "openai", "anthropic", "ci", "migration"]
+keywords = [
+  "llm", "llmops", "deprecation", "model-deprecation", "model-lifecycle",
+  "openai", "anthropic", "claude", "gpt", "ai-engineering",
+  "static-analysis", "linter", "cli", "ci", "migration", "technical-debt",
+]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Software Development :: Build Tools",
+  "Typing :: Typed",
 ]
 dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/Ort0x36/deprecation-desk"
+Source = "https://github.com/Ort0x36/deprecation-desk"
 Issues = "https://github.com/Ort0x36/deprecation-desk/issues"
+Changelog = "https://github.com/Ort0x36/deprecation-desk/blob/main/CHANGELOG.md"
 
 [project.scripts]
 depdesk = "depdesk.__main__:main"
@@ -32,5 +45,5 @@ depdesk = "depdesk.__main__:main"
 packages = ["depdesk"]
 
 [tool.setuptools.package-data]
-depdesk = ["data/catalog.json"]
+depdesk = ["data/catalog.json", "py.typed"]
 

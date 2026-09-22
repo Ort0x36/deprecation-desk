@@ -1,0 +1,28 @@
+name: Bug report
+description: depdesk reported something wrong, missed something, or crashed.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Paste the command and its output. Use `--json` if the output is long.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version and Python
+      placeholder: "depdesk 0.1.0, Python 3.12"
+  - type: markdown
+    attributes:
+      value: |
+        A false positive (something reported that is not deprecated) and a
+        false negative (a model id the scanner did not find) are both bugs
+        here. The second one matters more.

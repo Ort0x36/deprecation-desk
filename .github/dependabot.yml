@@ -1,0 +1,8 @@
+version: 2
+updates:
+  # depdesk itself has no dependencies. This keeps the actions used by CI
+  # from rotting, which is the only supply chain this repository has.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"

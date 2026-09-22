@@ -67,6 +67,14 @@ def _add_check_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="do not report identifiers that are absent from the catalog",
     )
+    parser.add_argument(
+        "--exclude",
+        metavar="GLOB",
+        action="append",
+        default=[],
+        help="skip paths matching this glob; repeatable. A single line can also "
+             "be silenced with a `depdesk: ignore` comment",
+    )
     parser.add_argument("--catalog", metavar="FILE", help="use a different catalog file")
     parser.add_argument(
         "--today",
@@ -145,12 +153,12 @@ def cmd_check(args: argparse.Namespace) -> int:
             return 3
         shares = share(totals)
 
-    # Nunca varrer o proprio catalogo (e uma lista de modelos mortos por
-    # definicao) nem o arquivo de uso, que e dado e nao codigo.
+    # Never scan the catalog itself (it is a list of dead models by
+    # definition) nor the usage export, which is data and not code.
     exclude = {catalog.path}
     if args.usage:
         exclude.add(Path(args.usage))
-    result = scan(roots, catalog, exclude=exclude)
+    result = scan(roots, catalog, exclude=exclude, exclude_globs=args.exclude)
     report = build(
         result,
         catalog,

@@ -209,3 +209,52 @@ def test_trailing_punctuation_is_not_part_of_the_identifier(tmp_path):
     _write(tmp_path, "a.py", "# see gpt-4o.\n")
     report = _report(tmp_path)
     assert [f.identifier for f in report.findings] == ["gpt-4o"]
+
+
+def test_ignore_pragma_silences_a_line(tmp_path):
+    # Documentation and migration notes legitimately name dead models. A line
+    # the reader has already judged must be silenceable, or the tool gets
+    # switched off entirely.
+    _write(
+        tmp_path,
+        "notes.md",
+        'We used to call "claude-opus-4-1-20250805" here.  <!-- depdesk: ignore -->\n',
+    )
+    report = _report(tmp_path)
+    assert report.findings == []
+    assert report.exit_code() == 0
+
+
+def test_ignore_pragma_silences_a_deprecated_parameter(tmp_path):
+    _write(
+        tmp_path,
+        "a.py",
+        'M = "claude-opus-5"\n'
+        "client.messages.create(model=M, temperature=0)  # depdesk: ignore\n",
+    )
+    report = _report(tmp_path)
+    assert report.param_hits == []
+
+
+def test_ignore_pragma_does_not_silence_the_next_line(tmp_path):
+    _write(
+        tmp_path,
+        "a.py",
+        '# depdesk: ignore\nM = "claude-opus-4-1-20250805"\n',
+    )
+    assert [f.identifier for f in _report(tmp_path).findings] == ["claude-opus-4-1-20250805"]
+
+
+def test_exclude_glob_skips_matching_files(tmp_path):
+    _write(tmp_path, "app/live.py", 'M = "claude-opus-4-1-20250805"\n')
+    _write(tmp_path, "docs/history.md", 'We shipped on "claude-3-opus-20240229".\n')
+
+    cat = _catalog()
+    everything = scan([tmp_path], cat)
+    assert len({hit.identifier for hit in everything.hits}) == 2
+
+    without_docs = scan([tmp_path], cat, exclude_globs=["*/docs/*"])
+    assert {hit.identifier for hit in without_docs.hits} == {"claude-opus-4-1-20250805"}
+
+    by_name = scan([tmp_path], cat, exclude_globs=["history.md"])
+    assert {hit.identifier for hit in by_name.hits} == {"claude-opus-4-1-20250805"}

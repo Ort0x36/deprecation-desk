@@ -3,17 +3,14 @@ name: ci
 on:
   push:
   pull_request:
-  schedule:
-    # Segunda de manha: o objetivo e descobrir que a pagina do provedor mudou
-    # antes do prazo, nao depois.
-    - cron: "0 7 * * 1"
 
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.9", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,18 +18,21 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install pytest
       - run: python -m pytest -q tests/
-      - name: dogfood
-        run: python -m depdesk check . --fail-in 60
 
-  upstream:
-    # So no agendamento: um push nao deveria falhar porque um provedor mexeu
-    # na pagina dele.
-    if: github.event_name == 'schedule'
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m depdesk upstream
+      - name: dogfood
+        # The tool has to pass its own check. Prose that names a dead model
+        # carries a `depdesk: ignore` comment, which is the same escape hatch
+        # users get.
+        run: python -m depdesk check depdesk --fail-in 60
+
+      - name: end to end on the sample app
+        # The sample is broken on purpose: exit 2 is the pass condition here,
+        # and anything else means the scanner stopped finding what it should.
+        run: |
+          set +e
+          python -m depdesk check examples/legacy-app --fail-in 60
+          code=$?
+          if [ "$code" -ne 2 ]; then
+            echo "expected exit 2 from the sample app, got $code"
+            exit 1
+          fi

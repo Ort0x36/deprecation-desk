@@ -1,0 +1,5 @@
+date,api_key,model,requests,input_tokens
+2026-09-15,sk-ant-...a1,claude-opus-4-1-20250805,1420,988000
+2026-09-15,sk-ant-...a1,claude-opus-5,7310,5120000
+2026-09-15,sk-ant-...b2,claude-3-5-sonnet-20241022,305,210000
+2026-09-15,sk-ant-...b2,gpt-5.4-cyber,240,150000

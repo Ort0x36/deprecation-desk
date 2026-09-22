@@ -1,0 +1,23 @@
+name: Provider request
+description: Ask for a provider beyond Anthropic and OpenAI.
+labels: ["provider"]
+body:
+  - type: input
+    id: provider
+    attributes:
+      label: Which provider
+      placeholder: Google, Mistral, Azure OpenAI, Bedrock, Cohere...
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Link to their public deprecation or model lifecycle page
+      description: No public page means no honest catalog. That is the one hard requirement.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything odd about how they name models
+      description: Aliases, dated snapshots, region suffixes. This is usually where the scanner needs care.
