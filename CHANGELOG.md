@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4
+
+- Words people actually search for, in the places that get indexed. The
+  package summary and the line under the title said "know which of your model
+  calls are on a clock", which reads well and carries none of the terms
+  somebody types: deprecated, retired, model retirement. An abandoned tool
+  with the same idea outranked this one on GitHub search for exactly that
+  reason.
+
 ## 0.1.3
 
 - Install instructions that survive PEP 668. `pip install depdesk` into the

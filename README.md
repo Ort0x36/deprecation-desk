@@ -2,6 +2,10 @@
 
 **Know which of your model calls are on a clock.**
 
+Find the deprecated and retired LLM model identifiers your code still calls,
+and fail the build before an OpenAI or Anthropic model retirement takes the
+application down with it.
+
 [![ci](https://github.com/Ort0x36/deprecation-desk/actions/workflows/ci.yml/badge.svg)](https://github.com/Ort0x36/deprecation-desk/actions/workflows/ci.yml)
 [![pypi](https://img.shields.io/pypi/v/depdesk)](https://pypi.org/project/depdesk/)
 [![python](https://img.shields.io/badge/python-3.9%20to%203.13-blue)](https://www.python.org/downloads/)
@@ -126,7 +130,7 @@ scanning the whole tree is CI's job.
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/Ort0x36/deprecation-desk
-    rev: v0.1.3
+    rev: v0.1.4
     hooks:
       - id: depdesk
 ```
