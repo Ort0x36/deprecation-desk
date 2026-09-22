@@ -3,6 +3,7 @@
 **Know which of your model calls are on a clock.**
 
 [![ci](https://github.com/Ort0x36/deprecation-desk/actions/workflows/ci.yml/badge.svg)](https://github.com/Ort0x36/deprecation-desk/actions/workflows/ci.yml)
+[![pypi](https://img.shields.io/pypi/v/depdesk)](https://pypi.org/project/depdesk/)
 [![python](https://img.shields.io/badge/python-3.9%20to%203.13-blue)](https://www.python.org/downloads/)
 [![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](pyproject.toml)
 [![licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
@@ -19,7 +20,7 @@ provider you write a catalog entry for.
 ## Install
 
 ```bash
-pip install git+https://github.com/Ort0x36/deprecation-desk
+pip install depdesk
 ```
 
 ## Try it in thirty seconds
@@ -116,7 +117,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install git+https://github.com/Ort0x36/deprecation-desk
+      - run: pip install depdesk
       - run: depdesk check . --fail-in 60
 ```
 

@@ -1,0 +1,48 @@
+name: release
+
+# Publishes to PyPI when a v* tag is pushed, through trusted publishing, so
+# there is no API token stored anywhere.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write   # what PyPI trusts instead of a token
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: The tag has to match the version being released
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(python -c 'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          if [ "$tag" != "$version" ]; then
+            echo "tag $GITHUB_REF_NAME does not match pyproject version $version"
+            exit 1
+          fi
+
+      - run: pip install pytest build twine
+      - run: python -m pytest -q tests/
+
+      - name: The catalog has to still agree with the provider pages
+        # Shipping a catalog we already know is wrong is the one thing this
+        # project cannot do. Transcribe the change, run upstream --save, then
+        # move the tag.
+        run: python -m depdesk upstream
+
+      - run: python -m build
+      - run: python -m twine check dist/*
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

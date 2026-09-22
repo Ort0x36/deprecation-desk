@@ -41,19 +41,20 @@ there is an alarm nobody reads.
    python3 -m depdesk check .
    ```
 
-3. Tag and publish:
+3. Tag it. The release workflow does the rest:
 
    ```bash
    git tag -a v0.1.0 -m "0.1.0"
    git push origin v0.1.0
-   python3 -m pip install --upgrade build twine
-   python3 -m build
-   python3 -m twine upload dist/*
    ```
 
-4. Once the package is on PyPI, change the install line in `README.md` and in
-   the CI snippet from the git URL to `pip install depdesk`, and add the PyPI
-   badge. Until then the git URL is the honest instruction.
+   It refuses to publish if the tag and the version in `pyproject.toml`
+   disagree, if the tests fail, or if `upstream` says a provider page moved
+   since the catalog was verified. Publishing goes through PyPI trusted
+   publishing, so there is no API token anywhere: the trust is between the
+   PyPI project and this repository's `release.yml` running in the `pypi`
+   environment. Changing the workflow filename or the environment name breaks
+   that link and the publisher has to be updated on PyPI.
 
 ## Repository settings worth having
 
