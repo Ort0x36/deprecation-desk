@@ -45,6 +45,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Test the action against this checkout, not the last release
+        run: python3 -m pip install --quiet .
+
       - id: broken
         continue-on-error: true
         uses: ./

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import fnmatch
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -154,6 +155,24 @@ def _read(path: Path) -> Optional[str]:
         return None
 
 
+def _looks_like_a_catalog(text: str) -> bool:
+    """A catalog is a list of dead models by definition, so reporting it is noise.
+
+    The catalog in use is already excluded by path, but a copy of it sitting in
+    the tree is not: a fork, a vendored file, or this repository scanned while
+    the CLI runs from an installed wheel. That last one made the same command
+    pass from source and fail from PyPI, which is the kind of difference that
+    makes people stop trusting the output.
+    """
+    if '"verified_on"' not in text or '"models"' not in text:
+        return False
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return False
+    return isinstance(data, dict) and "schema" in data and isinstance(data.get("models"), list)
+
+
 def _excerpt(line: str, limit: int = 160) -> str:
     trimmed = line.strip()
     return trimmed if len(trimmed) <= limit else trimmed[: limit - 1] + "…"
@@ -213,6 +232,9 @@ def scan(
     for path in iter_files(roots, exclude, exclude_globs):
         text = _read(path)
         if text is None:
+            skipped += 1
+            continue
+        if path.suffix == ".json" and _looks_like_a_catalog(text):
             skipped += 1
             continue
         scanned += 1

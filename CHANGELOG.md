@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.1.1
+
+- A copy of the catalog sitting in the scanned tree is skipped, not reported.
+  The catalog in use was already excluded by path, so `depdesk check` passed
+  from a source checkout and failed from an installed wheel, on the same
+  command and the same files. A catalog is a list of dead models by
+  definition, and reporting it says nothing.
 
 - A pre-commit hook, so adopting this is three lines in a config people
   already have.

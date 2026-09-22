@@ -110,7 +110,7 @@ scanning the whole tree is CI's job.
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/Ort0x36/deprecation-desk
-    rev: v0.1.0
+    rev: v0.1.1
     hooks:
       - id: depdesk
 ```

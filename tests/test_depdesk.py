@@ -283,3 +283,21 @@ def test_a_moved_page_is_drift():
 
 def test_a_failed_fetch_beats_everything():
     assert exit_code([_result(ok=False, error="timeout"), _result(changed=True)]) == 3
+
+
+def test_a_copy_of_the_catalog_is_not_scanned(tmp_path, capsys):
+    # Running from an installed wheel put the catalog in use outside the tree,
+    # so this repository's own copy stopped being excluded by path and turned
+    # into a page of findings about itself. Same command, different result
+    # depending on how you installed it.
+    copy = json.loads(catalog_mod.load().path.read_text(encoding="utf-8"))
+    _write(tmp_path, "vendor/catalog.json", json.dumps(copy))
+    _write(tmp_path, "app.py", 'M = "claude-sonnet-5"\n')
+    report = _report(tmp_path)
+    assert report.findings == []
+    assert report.exit_code() == 0
+
+
+def test_a_json_file_that_is_not_a_catalog_still_counts(tmp_path):
+    _write(tmp_path, "config.json", '{"model": "claude-opus-4-1-20250805"}\n')
+    assert [f.identifier for f in _report(tmp_path).findings] == ["claude-opus-4-1-20250805"]

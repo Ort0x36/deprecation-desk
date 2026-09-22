@@ -37,6 +37,13 @@ runs:
         DEPDESK_VERSION: ${{ inputs.version }}
       run: |
         set -euo pipefail
+        # An install already on PATH wins, so a workflow can pin its own
+        # version, or test an unreleased checkout, without this step fighting
+        # it. Asking for a version explicitly always installs that one.
+        if [ -z "$DEPDESK_VERSION" ] && command -v depdesk >/dev/null 2>&1; then
+          echo "using $(depdesk --version), already installed"
+          exit 0
+        fi
         spec="depdesk"
         if [ -n "$DEPDESK_VERSION" ]; then
           spec="depdesk==$DEPDESK_VERSION"
