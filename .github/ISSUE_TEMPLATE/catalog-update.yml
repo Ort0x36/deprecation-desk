@@ -1,0 +1,36 @@
+name: Catalog is out of date
+description: A model, endpoint or parameter changed on a provider page and the catalog does not know yet.
+title: "catalog: "
+labels: ["catalog"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The catalog is the part of this tool that can be wrong in a way that
+        hurts. Thank you for keeping it honest. A pull request editing
+        `depdesk/data/catalog.json` is faster than an issue, and the diff is
+        readable by anyone.
+  - type: input
+    id: provider
+    attributes:
+      label: Provider
+      placeholder: anthropic, openai, or a provider we do not cover yet
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Link to the provider page that says so
+      description: The provider's own deprecation page, not a blog post about it.
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: What changed
+      description: Identifier, dates announced and retirement, and the replacement the provider names.
+      placeholder: |
+        gpt-5.4-cyber: retirement moved from 2026-10-01 to 2026-11-15.
+        Replacement on the page is still gpt-5.6-cyber.
+    validations:
+      required: true

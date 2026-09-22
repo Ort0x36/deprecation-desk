@@ -1,0 +1,64 @@
+name: catalog drift
+
+# The catalog is the whole product: a stale one answers "nothing is
+# deprecated" with confidence while a model retires. This job asks the
+# provider pages whether they moved, and opens an issue when they did, so
+# the drift lands in someone's inbox instead of in a log nobody reads.
+
+on:
+  schedule:
+    - cron: "0 7 * * 1"   # Monday morning, before anyone's deadline
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Ask the provider pages whether they moved
+        id: upstream
+        run: |
+          set +e
+          python -m depdesk upstream | tee upstream.txt
+          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the drift issue
+        # exit 1 means a page changed, 3 means the check itself failed.
+        # Both are worth a human. exit 0 stays silent on purpose.
+        if: steps.upstream.outputs.status != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.upstream.outputs.status }}" = "3" ]; then
+            TITLE="Catalog drift check failed"
+            HEAD="\`depdesk upstream\` could not complete. The catalog may still be fine; the check is not."
+          else
+            TITLE="Provider deprecation pages changed"
+            HEAD="A provider page no longer matches the catalog. Transcribe the change, then run \`depdesk upstream --save\`."
+          fi
+
+          BODY="$(printf '%s\n\n[Workflow run](%s)\n\n```\n%s\n```\n' "$HEAD" "$RUN_URL" "$(cat upstream.txt)")"
+
+          # Create the label first: listing by a label that does not exist yet
+          # is an error, and this job has to work on a fresh repository too.
+          gh label create catalog-drift --color FBCA04 \
+            --description "The provider pages moved" --force
+
+          EXISTING="$(gh issue list --label catalog-drift --state open --limit 1 \
+            --json number --jq '.[0].number // empty')"
+
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+          else
+            gh issue create --title "$TITLE" --label catalog-drift --body "$BODY"
+          fi

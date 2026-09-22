@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import fnmatch
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,11 @@ SKIP_SUFFIXES = {
 }
 
 MAX_BYTES = 2_000_000
+
+# A line carrying this marker is not scanned. Documentation, changelogs and
+# migration notes legitimately name models that are dead, and a tool you
+# cannot silence on a known-good line is a tool people stop running.
+IGNORE_PRAGMA = "depdesk: ignore"
 
 # Identifiers that look like a hosted model but are not in the catalog. Kept
 # deliberately loose: a false "unknown" is cheap, a missed one is not.
@@ -93,11 +99,26 @@ def _is_scannable(path: Path) -> bool:
     return True
 
 
-def iter_files(roots: Sequence[Path], exclude: Optional[Set[Path]] = None) -> Iterator[Path]:
+def _matches_any(path: Path, patterns: Sequence[str]) -> bool:
+    """Glob match against the path as written, its absolute form and its name."""
+    candidates = (str(path), str(path.resolve()), path.name)
+    return any(
+        fnmatch.fnmatch(candidate, pattern)
+        for pattern in patterns
+        for candidate in candidates
+    )
+
+
+def iter_files(
+    roots: Sequence[Path],
+    exclude: Optional[Set[Path]] = None,
+    exclude_globs: Optional[Sequence[str]] = None,
+) -> Iterator[Path]:
     excluded = {p.resolve() for p in (exclude or set())}
+    globs = tuple(exclude_globs or ())
     for root in roots:
         if root.is_file():
-            if root.resolve() not in excluded:
+            if root.resolve() not in excluded and not _matches_any(root, globs):
                 yield root
             continue
         for path in sorted(root.rglob("*")):
@@ -107,18 +128,20 @@ def iter_files(roots: Sequence[Path], exclude: Optional[Set[Path]] = None) -> It
                 continue
             if path.resolve() in excluded:
                 continue
+            if globs and _matches_any(path, globs):
+                continue
             if _is_scannable(path):
                 yield path
 
 
 def _build_id_pattern(identifiers: Iterable[str]) -> Optional[re.Pattern]:
-    # Longest first so that gpt-4-turbo wins over any shorter prefix.
+    # Longest first so that gpt-4-turbo wins over any shorter prefix.  # depdesk: ignore
     ordered = sorted({i for i in identifiers}, key=len, reverse=True)
     if not ordered:
         return None
     alternation = "|".join(re.escape(i) for i in ordered)
     # A model id may not be glued to another identifier character. This is what
-    # stops gpt-4 from matching inside gpt-4o.
+    # stops gpt-4 from matching inside gpt-4o.  # depdesk: ignore
     return re.compile(r"(?<![A-Za-z0-9_.\-])(" + alternation + r")(?![A-Za-z0-9_.\-])")
 
 
@@ -168,6 +191,7 @@ def scan(
     roots: Sequence[Path],
     catalog: Catalog,
     exclude: Optional[Set[Path]] = None,
+    exclude_globs: Optional[Sequence[str]] = None,
 ) -> ScanResult:
     known_ids = {entry.id for entry in catalog.entries}
     id_pattern = _build_id_pattern(known_ids)
@@ -186,7 +210,7 @@ def scan(
     scanned = 0
     skipped = 0
 
-    for path in iter_files(roots, exclude):
+    for path in iter_files(roots, exclude, exclude_globs):
         text = _read(path)
         if text is None:
             skipped += 1
@@ -197,6 +221,8 @@ def scan(
         file_ids: Set[str] = set()
         if id_pattern is not None:
             for index, line in enumerate(lines, start=1):
+                if IGNORE_PRAGMA in line:
+                    continue
                 for match in id_pattern.finditer(line):
                     identifier = match.group(1)
                     file_ids.add(identifier)
@@ -205,15 +231,18 @@ def scan(
         # Identifiers that look like models but are not in the catalog. We
         # cannot tell the user anything about these, and saying so is the point.
         for index, line in enumerate(lines, start=1):
+            if IGNORE_PRAGMA in line:
+                continue
             for pattern in UNKNOWN_PATTERNS:
                 for match in pattern.finditer(line):
                     candidate = match.group(0).rstrip(".-")
                     if candidate in known_ids:
                         continue
-                    # Nao existe guarda de "e pedaco de um id conhecido" aqui de
-                    # proposito: a regex e gulosa e ja captura o token inteiro,
-                    # e a guarda antiga escondia gpt-4o so por ser prefixo de
-                    # gpt-4o-audio. Silenciar achado legitimo e pior que ruido.
+                    # There is deliberately no "is a piece of a known id" guard
+                    # here: the regex is greedy and already captures the whole
+                    # token, and the old guard hid gpt-4o just for being a  # depdesk: ignore
+                    # prefix of gpt-4o-audio. Silencing a real finding beats  # depdesk: ignore
+                    # no noise.
                     unknown.setdefault(candidate, []).append(
                         Hit(candidate, path, index, _excerpt(line))
                     )
@@ -228,6 +257,8 @@ def scan(
                     occurrences = _find_params_text(text, param_names)
                 for name, line_no in occurrences:
                     line_text = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
+                    if IGNORE_PRAGMA in line_text:
+                        continue
                     param_hits.append(
                         ParamHit(
                             parameter=name,

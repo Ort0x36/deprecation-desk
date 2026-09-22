@@ -58,7 +58,7 @@ _LONG_DATE = re.compile(
 )
 
 # Words that look like an identifier but never are one.
-_NOT_IDENTIFIERS = {"claude-api", "gpt-oss"}
+_NOT_IDENTIFIERS = {"claude-api", "gpt-oss"}  # depdesk: ignore
 
 
 @dataclass
