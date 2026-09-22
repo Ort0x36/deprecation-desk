@@ -1,0 +1,10 @@
+- id: depdesk
+  name: depdesk
+  description: Fail the commit when a file names a model that is deprecated or retired
+  entry: depdesk check
+  language: python
+  types: [text]
+  # Only the staged files, which is what makes this fast enough to sit in a
+  # commit hook. Scanning the whole tree is CI's job, where --usage and the
+  # full report belong.
+  pass_filenames: true

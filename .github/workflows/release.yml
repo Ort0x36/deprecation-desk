@@ -6,7 +6,9 @@ name: release
 on:
   push:
     tags:
-      - "v*"
+      # Only full versions. The Marketplace major tag (v1) moves on every
+      # release and must not try to publish 0.1.0 to PyPI a second time.
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 permissions:
   contents: read

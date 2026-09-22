@@ -56,6 +56,18 @@ there is an alarm nobody reads.
    environment. Changing the workflow filename or the environment name breaks
    that link and the publisher has to be updated on PyPI.
 
+## The Marketplace tag
+
+The action is referenced as `Ort0x36/deprecation-desk@v1`, so after every
+release that changes `action.yml` or the CLI it calls, move the tag:
+
+```bash
+git tag -f v1 && git push -f origin v1
+```
+
+The release workflow only fires on a full version tag, so moving `v1` cannot
+try to republish to PyPI.
+
 ## Repository settings worth having
 
 Topics, which is how people find a tool like this. In the web interface they

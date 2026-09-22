@@ -17,15 +17,18 @@ your build while there is still time to do something about it.
 Zero dependencies. Python 3.9 or newer. Anthropic and OpenAI today, and any
 provider you write a catalog entry for.
 
-## Install
+## Try it in ten seconds
+
+No install, if you have [uv](https://docs.astral.sh/uv/):
+
+```bash
+uvx depdesk check .
+```
+
+Or the usual way:
 
 ```bash
 pip install depdesk
-```
-
-## Try it in thirty seconds
-
-```bash
 depdesk check .
 ```
 
@@ -97,6 +100,21 @@ same way.
 Where the provider's own wording is ambiguous about which models a rule covers,
 `depdesk` says so and downgrades the finding to review instead of guessing.
 
+## Put it in a commit hook
+
+For [pre-commit](https://pre-commit.com), three lines in the config you already
+have. It checks the staged files, which is fast enough to sit in a commit hook;
+scanning the whole tree is CI's job.
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/Ort0x36/deprecation-desk
+    rev: v0.1.0
+    hooks:
+      - id: depdesk
+```
+
 ## Put it in CI
 
 This is the point of the exit codes: the build starts failing the day a
@@ -119,6 +137,16 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install depdesk
       - run: depdesk check . --fail-in 60
+```
+
+There is also an action, if you prefer it to the two lines above:
+
+```yaml
+      - uses: Ort0x36/deprecation-desk@v1
+        with:
+          path: .
+          fail-in: "60"
+          # usage: usage.csv
 ```
 
 | code | meaning |

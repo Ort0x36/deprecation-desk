@@ -1,0 +1,66 @@
+name: depdesk
+description: Fail the build when your code calls a model that is deprecated or retired
+author: Wendel Ortiz
+
+branding:
+  icon: clock
+  color: orange
+
+inputs:
+  path:
+    description: File or directory to scan
+    required: false
+    default: "."
+  fail-in:
+    description: Treat a retirement inside this many days as failing
+    required: false
+    default: "90"
+  usage:
+    description: CSV or JSON export of real call volume, to weight each finding by traffic
+    required: false
+    default: ""
+  version:
+    description: depdesk version to install. Empty means the latest release
+    required: false
+    default: ""
+  args:
+    description: Extra arguments passed through to depdesk check
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install depdesk
+      shell: bash
+      env:
+        DEPDESK_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        spec="depdesk"
+        if [ -n "$DEPDESK_VERSION" ]; then
+          spec="depdesk==$DEPDESK_VERSION"
+        fi
+        python3 -m pip install --quiet --disable-pip-version-check "$spec"
+
+    - name: Run depdesk
+      shell: bash
+      # Inputs arrive as environment variables rather than being interpolated
+      # into the script, so a workflow that builds an input from somebody's
+      # branch name cannot smuggle shell into this step.
+      env:
+        DEPDESK_PATH: ${{ inputs.path }}
+        DEPDESK_FAIL_IN: ${{ inputs.fail-in }}
+        DEPDESK_USAGE: ${{ inputs.usage }}
+        DEPDESK_ARGS: ${{ inputs.args }}
+      run: |
+        set -euo pipefail
+        extra=()
+        if [ -n "$DEPDESK_USAGE" ]; then
+          extra+=(--usage "$DEPDESK_USAGE")
+        fi
+        if [ -n "$DEPDESK_ARGS" ]; then
+          read -ra passthrough <<< "$DEPDESK_ARGS"
+          extra+=("${passthrough[@]}")
+        fi
+        depdesk check "$DEPDESK_PATH" --fail-in "$DEPDESK_FAIL_IN" ${extra[@]+"${extra[@]}"}

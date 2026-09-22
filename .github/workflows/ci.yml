@@ -36,3 +36,30 @@ jobs:
             echo "expected exit 2 from the sample app, got $code"
             exit 1
           fi
+
+  action:
+    # The action is the thing most people will actually run, so it gets the
+    # same treatment as the CLI: it has to fail on the broken sample and pass
+    # on the package.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: broken
+        continue-on-error: true
+        uses: ./
+        with:
+          path: examples/legacy-app
+          fail-in: "60"
+
+      - name: The action has to fail on the broken sample
+        run: |
+          if [ "${{ steps.broken.outcome }}" != "failure" ]; then
+            echo "the sample app is deprecated on purpose and the action passed it"
+            exit 1
+          fi
+
+      - uses: ./
+        with:
+          path: depdesk
+          fail-in: "60"

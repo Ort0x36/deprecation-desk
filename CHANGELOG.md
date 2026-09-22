@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- A pre-commit hook, so adopting this is three lines in a config people
+  already have.
+- A GitHub Action, `Ort0x36/deprecation-desk@v1`, for the same reason. CI
+  runs it against the broken sample and against the package itself, so the
+  action is tested in both directions.
+- `uvx depdesk check .` documented first: it is the shortest path from
+  reading about this to knowing whether your own repository is affected.
+
 ## 0.1.0
 
 First public release.
