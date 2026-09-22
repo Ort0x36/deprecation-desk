@@ -19,18 +19,34 @@ provider you write a catalog entry for.
 
 ## Try it in ten seconds
 
-No install, if you have [uv](https://docs.astral.sh/uv/):
+With [uv](https://docs.astral.sh/uv/), there is nothing to install:
 
 ```bash
 uvx depdesk check .
 ```
 
-Or the usual way:
+No uv? One line, no sudo:
 
 ```bash
-pip install depdesk
-depdesk check .
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
+
+Or install depdesk itself, with pipx or into a virtual environment:
+
+```bash
+pipx install depdesk
+
+# or
+python3 -m venv .venv
+.venv/bin/pip install depdesk
+.venv/bin/depdesk check .
+```
+
+A plain `pip install depdesk` into the system Python fails on Ubuntu 24.04,
+Debian and everything else that ships [PEP 668](https://peps.python.org/pep-0668/),
+which is most distributions now. That is the distribution protecting its own
+Python, not this package being difficult, and every command above works around
+it the way the distribution intends.
 
 That is the whole setup. Point it at a repository and it reports every model
 identifier it finds, crossed against the provider's published deprecation
@@ -110,7 +126,7 @@ scanning the whole tree is CI's job.
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/Ort0x36/deprecation-desk
-    rev: v0.1.2
+    rev: v0.1.3
     hooks:
       - id: depdesk
 ```

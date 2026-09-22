@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.3
+
+- Install instructions that survive PEP 668. `pip install depdesk` into the
+  system Python fails on Ubuntu 24.04 and Debian, which is where a good share
+  of readers are, and the README offered exactly two paths: `uvx`, for people
+  who already have uv, and that failing `pip`. Both dead ends for the same
+  person. The README now installs uv in one line and documents pipx and a
+  virtual environment.
+
 ## 0.1.2
 
 - `depdesk --version` reports the version it actually is. 0.1.1 shipped
