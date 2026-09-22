@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+- `depdesk --version` reports the version it actually is. 0.1.1 shipped
+  saying 0.1.0, because the number lives in `pyproject.toml` and in
+  `__init__.py` and only one was bumped. A test now fails when they drift.
+
 ## 0.1.1
 
 - A copy of the catalog sitting in the scanned tree is skipped, not reported.

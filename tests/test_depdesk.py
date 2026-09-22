@@ -301,3 +301,16 @@ def test_a_copy_of_the_catalog_is_not_scanned(tmp_path, capsys):
 def test_a_json_file_that_is_not_a_catalog_still_counts(tmp_path):
     _write(tmp_path, "config.json", '{"model": "claude-opus-4-1-20250805"}\n')
     assert [f.identifier for f in _report(tmp_path).findings] == ["claude-opus-4-1-20250805"]
+
+
+def test_the_two_version_literals_agree():
+    # 0.1.1 shipped reporting itself as 0.1.0, because the version lives both
+    # in pyproject and in __init__ and only one of them was bumped. A tool
+    # about versions getting its own wrong is not a small thing.
+    import re
+
+    import depdesk
+
+    pyproject = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text()
+    declared = re.search(r'^version = "([^"]+)"', pyproject, re.M).group(1)
+    assert depdesk.__version__ == declared

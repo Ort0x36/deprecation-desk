@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "depdesk"
-version = "0.1.1"
+version = "0.1.2"
 description = "Know which of your model calls are on a clock."
 readme = "README.md"
 requires-python = ">=3.9"
