@@ -8,3 +8,8 @@
   # commit hook. Scanning the whole tree is CI's job, where --usage and the
   # full report belong.
   pass_filenames: true
+  # One process at a time instead of parallel batches, so the job summary
+  # inside GitHub Actions is written in order. pre-commit still splits a very
+  # long file list (a few thousand files) into consecutive runs, and each run
+  # appends its own table.
+  require_serial: true

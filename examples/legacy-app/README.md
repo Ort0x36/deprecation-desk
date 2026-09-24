@@ -11,5 +11,7 @@ depdesk check examples/legacy-app --usage examples/legacy-app/usage.csv
 ```
 
 The first command exits 2. That is the point: this is what a failing build
-looks like. CI runs exactly this, so the day the output stops matching, the
-tool broke rather than the example.
+looks like. CI runs it and requires exactly 2, and the test suite compares the
+output of `depdesk check app` from this directory with the sample in the main
+README, so the day either stops matching, the tool broke rather than the
+example.

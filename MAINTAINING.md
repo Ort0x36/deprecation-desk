@@ -21,6 +21,15 @@ retires, which is the exact failure this tool exists to prevent. So:
   `--save` only records fingerprints. It does not write model entries: those
   are transcribed by a person, on purpose.
 - `verified_on` is what the tool shows to users and what ages. Update it.
+- Each source carries `between`, the text that opens and the text that closes
+  the deprecation list on that page. Only what lies between them is
+  fingerprinted, so the site navigation, which names models too, cannot raise
+  a false alarm. If the page is redesigned and the markers vanish, `upstream`
+  says so and uses the whole page; pick new markers and `--save` again.
+- An entry transcribed from a page other than the provider's deprecation page,
+  such as an alias that only the models overview lists, carries `source` with
+  that URL. Without it, `upstream` reports the entry as missing from the
+  deprecation page every week.
 
 If the drift job itself starts failing every week (a page moved for good, a
 fetch keeps timing out), fix the source entry rather than muting the job. The

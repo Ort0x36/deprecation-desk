@@ -45,6 +45,9 @@ class Entry:
     replacement: Optional[str] = None
     note: Optional[str] = None
     retirement_note: Optional[str] = None
+    # The page an entry was transcribed from, when it is not the provider's
+    # deprecation page (an alias listed only on the models overview).
+    source: Optional[str] = None
 
     def days_left(self, today: date) -> Optional[int]:
         """Days until the announced retirement. Negative once it has passed."""
@@ -95,10 +98,46 @@ class Catalog:
         return sorted({e.provider for e in self.entries})
 
 
+def _list_of_objects(raw: Dict[str, Any], key: str) -> List[Dict[str, Any]]:
+    """The list under `key`, refusing anything else.
+
+    A catalog passed with --catalog is somebody's hand edit. In 0.2.0 a list
+    where an object belonged, or a missing key, ended in a traceback and exit
+    1, which the contract reserves for warnings under --strict.
+    """
+    value = raw.get(key, [])
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise CatalogError(f"{key}: expected a list of objects")
+    return value
+
+
+def _text(item: Dict[str, Any], key: str, owner: str) -> Optional[str]:
+    value = item.get(key)
+    if value is not None and not isinstance(value, str):
+        raise CatalogError(f"{owner}: {key} must be a string")
+    return value
+
+
+def _sources(raw: Dict[str, Any]) -> List[Dict[str, Any]]:
+    sources = _list_of_objects(raw, "sources")
+    for source in sources:
+        between = source.get("between")
+        if between is None:
+            continue
+        # A hand-edited marker pair that was not a pair crashed upstream with
+        # exit 1, which the drift workflow reads as "the page moved".
+        if (
+            not isinstance(between, list) or len(between) != 2
+            or not all(isinstance(m, str) and m for m in between)
+        ):
+            raise CatalogError(f"sources: between must be two non-empty strings, got {between!r}")
+    return sources
+
+
 def _entries_from(raw: Dict[str, Any], key: str, kind: str) -> Iterable[Entry]:
-    for item in raw.get(key, []):
+    for item in _list_of_objects(raw, key):
         ident = item.get("id")
-        if not ident:
+        if not ident or not isinstance(ident, str):
             raise CatalogError(f"{key}: an entry has no id")
         status = item.get("status")
         if status not in {"active", "deprecated", "retired"}:
@@ -113,9 +152,10 @@ def _entries_from(raw: Dict[str, Any], key: str, kind: str) -> Iterable[Entry]:
             earliest_retirement=_parse_date(
                 item.get("earliest_retirement"), "earliest_retirement", ident
             ),
-            replacement=item.get("replacement"),
-            note=item.get("note"),
-            retirement_note=item.get("retirement_note"),
+            replacement=_text(item, "replacement", ident),
+            note=_text(item, "note", ident),
+            retirement_note=_text(item, "retirement_note", ident),
+            source=_text(item, "source", ident),
         )
 
 
@@ -131,12 +171,16 @@ def resolve_catalog_path(explicit: Optional[str] = None) -> Path:
 def load(path: Optional[str] = None) -> Catalog:
     resolved = resolve_catalog_path(path)
     try:
-        raw = json.loads(resolved.read_text(encoding="utf-8"))
+        raw = json.loads(resolved.read_text(encoding="utf-8-sig"))
     except FileNotFoundError as exc:
         raise CatalogError(f"catalog not found: {resolved}") from exc
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise CatalogError(f"catalog is not valid JSON: {resolved}: {exc}") from exc
+    except OSError as exc:
+        raise CatalogError(f"catalog cannot be read: {resolved}: {exc.strerror or exc}") from exc
 
+    if not isinstance(raw, dict):
+        raise CatalogError(f"catalog is not a JSON object: {resolved}")
     if raw.get("schema") != 1:
         raise CatalogError(f"unsupported catalog schema: {raw.get('schema')!r}")
 
@@ -151,6 +195,15 @@ def load(path: Optional[str] = None) -> Catalog:
             raise CatalogError(f"duplicate id in catalog: {entry.id}")
         seen.add(entry.id)
 
+    rules = _list_of_objects(raw, "parameters")
+    for rule in rules:
+        names = rule.get("names")
+        if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
+            raise CatalogError("parameters: every rule needs a list of names")
+        for key in ("affects", "affects_uncertain"):
+            if not isinstance(rule.get(key, []), list):
+                raise CatalogError(f"parameters: {key} must be a list")
+
     parameters = [
         ParameterRule(
             names=list(rule["names"]),
@@ -164,7 +217,7 @@ def load(path: Optional[str] = None) -> Catalog:
             replacement=rule.get("replacement"),
             uncertainty_note=rule.get("uncertainty_note"),
         )
-        for rule in raw.get("parameters", [])
+        for rule in rules
     ]
 
     verified = _parse_date(raw.get("verified_on"), "verified_on", "catalog")
@@ -175,7 +228,7 @@ def load(path: Optional[str] = None) -> Catalog:
         verified_on=verified,
         entries=entries,
         parameters=parameters,
-        sources=list(raw.get("sources", [])),
-        policies=list(raw.get("policies", [])),
+        sources=_sources(raw),
+        policies=_list_of_objects(raw, "policies"),
         path=resolved,
     )

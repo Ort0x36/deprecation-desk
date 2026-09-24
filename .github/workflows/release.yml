@@ -14,11 +14,11 @@ permissions:
   contents: read
 
 jobs:
-  publish:
+  build:
+    # Everything that installs or runs third party code happens here, in a job
+    # that cannot publish. The token PyPI trusts only exists in the job below,
+    # which runs nothing but the official publish action.
     runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write   # what PyPI trusts instead of a token
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -46,5 +46,22 @@ jobs:
 
       - run: python -m build
       - run: python -m twine check dist/*
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write   # what PyPI trusts instead of a token
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
 
       - uses: pypa/gh-action-pypi-publish@release/v1

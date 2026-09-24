@@ -72,13 +72,13 @@ def test_active_model_is_silent(tmp_path):
 
 
 def test_prefix_does_not_false_match(tmp_path):
-    # gpt-4-turbo is in the catalog; gpt-4-turbo-preview is a different string
-    # and must not be reported as if it were the known one.
-    _write(tmp_path, "a.py", 'M = "gpt-4-turbo-preview"\n')
+    # gpt-4-turbo is in the catalog; gpt-4-turbo-experimental is a different
+    # string and must not be reported as if it were the known one.
+    _write(tmp_path, "a.py", 'M = "gpt-4-turbo-experimental"\n')
     report = _report(tmp_path)
     ids = [f.identifier for f in report.findings]
     assert "gpt-4-turbo" not in ids
-    assert "gpt-4-turbo-preview" in ids
+    assert "gpt-4-turbo-experimental" in ids
     assert report.findings[0].severity == "unknown"
 
 
@@ -203,8 +203,10 @@ if __name__ == "__main__":  # pragma: no cover
 
 def test_catalog_file_is_never_scanned(tmp_path, capsys):
     """O catalogo e uma lista de modelos mortos: varre-lo reporta tudo."""
-    assert main(["check", str(Path(catalog_mod.DEFAULT_CATALOG).parent)]) == 0
-    capsys.readouterr()
+    # A pasta so tem o catalogo, entao nada e lido: desde a 0.2.1 isso e 3,
+    # "nada foi conferido", e nao um 0 que ninguem mereceu.
+    assert main(["check", str(Path(catalog_mod.DEFAULT_CATALOG).parent)]) == 3
+    assert "claude" not in capsys.readouterr().out
 
 
 def test_trailing_punctuation_is_not_part_of_the_identifier(tmp_path):
@@ -468,3 +470,551 @@ def test_short_aliases_do_not_match_inside_longer_ids(tmp_path):
     _write(tmp_path, "b.py", 'M = "gpt-4"\n')
     finding = next(f for f in _report(tmp_path).findings if f.identifier == "gpt-4")
     assert finding.severity == "due" and finding.replacement == "gpt-5.6-sol"
+
+
+# 0.2.1: dois falsos "tudo limpo" achados por revisao externa do scan.py.
+
+def test_skip_dirs_only_apply_below_the_root(tmp_path, capsys):
+    # A root under a directory called build scanned zero files and printed
+    # "Nothing deprecated found", exit 0, whether the path was absolute or
+    # relative. Docker images built under /build hit exactly this.
+    _write(tmp_path, "build/proj/x.py", 'M = "claude-2.0"\n')
+    _write(tmp_path, "build/proj/node_modules/y.js", 'const m = "claude-2.0";\n')
+    report = _report(tmp_path / "build" / "proj")
+    assert report.scanned == 1  # node_modules below the root is still skipped
+    assert [f.identifier for f in report.findings] == ["claude-2.0"]
+    assert main(["check", str(tmp_path / "build" / "proj")]) == 2
+    capsys.readouterr()
+
+
+def test_a_directory_with_nothing_readable_is_not_a_pass(tmp_path, capsys):
+    _write(tmp_path, "only/logo.png", "not really a png\n")
+    assert main(["check", str(tmp_path / "only")]) == 3
+    assert "nothing was checked" in capsys.readouterr().err
+
+
+def test_a_single_file_that_is_skipped_is_not_an_error(tmp_path, capsys):
+    # pre-commit passes staged files one by one; a staged catalog copy is
+    # skipped, and blocking the commit for that would be wrong.
+    copy = json.loads(catalog_mod.load().path.read_text(encoding="utf-8"))
+    path = _write(tmp_path, "catalog.json", json.dumps(copy))
+    assert main(["check", str(path)]) == 0
+    assert "nothing to check" in capsys.readouterr().out
+
+
+def test_prefixed_catalog_id_is_reported_as_unknown_not_dated(tmp_path):
+    # anthropic.claude-2.0 and azure.gpt-4 used to produce nothing at all. They
+    # are not the catalog entry either: a cloud platform runs its own schedule.
+    _write(tmp_path, "a.py", 'A = "anthropic.claude-2.0"\nB = "azure.gpt-4"\nC = "prod-gpt-4-turbo"\n')
+    report = _report(tmp_path)
+    by_id = {f.identifier: f for f in report.findings}
+    assert set(by_id) == {"anthropic.claude-2.0", "azure.gpt-4", "prod-gpt-4-turbo"}
+    assert all(f.severity == "unknown" for f in by_id.values())
+    assert "claude-2.0" in by_id["anthropic.claude-2.0"].detail
+    assert report.exit_code() == 0
+
+
+def test_prefix_handling_keeps_the_old_boundaries(tmp_path):
+    _write(tmp_path, "a.py", 'A = "claude-2.0"\nB = "gpt-4o"\nC = "foo1 echo1"\nD = "openai/gpt-4"\n')
+    ids = sorted(f.identifier for f in _report(tmp_path).findings)
+    assert ids == ["claude-2.0", "gpt-4", "gpt-4o"]
+
+
+# 0.2.1: auditoria completa. Cada teste reproduz um defeito achado rodando a
+# ferramenta, e o nome diz o que passou a ser verdade.
+
+import os  # noqa: E402
+import subprocess  # noqa: E402
+
+import pytest  # noqa: E402
+
+from depdesk import scan as scan_mod  # noqa: E402
+from depdesk import upstream as upstream_mod  # noqa: E402
+
+
+def _ids(tmp_path, **kwargs):
+    return sorted(f.identifier for f in _report(tmp_path, **kwargs).findings)
+
+
+def test_a_latin1_file_is_read(tmp_path):
+    (tmp_path / ".env").write_bytes(b"# configura\xe7\xe3o\nMODEL=claude-opus-4-1-20250805\n")
+    assert _ids(tmp_path) == ["claude-opus-4-1-20250805"]
+
+
+def test_a_utf16_file_is_read(tmp_path):
+    (tmp_path / "config.yaml").write_bytes('model: "claude-3-opus-20240229"\n'.encode("utf-16"))
+    assert _ids(tmp_path) == ["claude-3-opus-20240229"]
+
+
+def test_a_file_over_the_old_2mb_limit_is_read(tmp_path):
+    _write(tmp_path, "prompts.yaml", 'model: "claude-3-opus-20240229"\n' + "x: y\n" * 600_000)
+    assert _ids(tmp_path) == ["claude-3-opus-20240229"]
+
+
+def test_a_file_that_cannot_be_read_is_listed_and_warns(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(scan_mod, "MAX_BYTES", 10)
+    _write(tmp_path, "big.py", 'M = "claude-3-opus-20240229"\n')
+    _write(tmp_path, "ok.py", "x = 1\n")
+    report = _report(tmp_path)
+    assert [str(p.name) for p, _ in report.skipped] == ["big.py"]
+    assert report.exit_code() == 0 and _report(tmp_path, strict=True).exit_code() == 1
+    text = render_text(report)
+    assert "COULD NOT READ" in text and "Nothing deprecated found. Every" not in text
+    assert json.loads(render_json(report))["skipped"][0]["path"].endswith("big.py")
+
+
+def test_a_binary_without_extension_is_skipped_quietly(tmp_path):
+    (tmp_path / "tool").write_bytes(b"\x7fELF\x00\x00claude-2.0")
+    _write(tmp_path, "a.py", "x = 1\n")
+    report = _report(tmp_path)
+    assert report.findings == [] and report.skipped == []
+
+
+@pytest.mark.parametrize("name,body", [
+    ("request.json", '{"model": "claude-opus-4-7", "temperature": 0.2}\n'),
+    ("client.ts", 'create({ "model": "claude-opus-4-7", "temperature": 0 })\n'),
+    ("call.sh", "curl -d '{\"model\":\"claude-opus-4-7\",\"top_p\":0.9}'\n"),
+])
+def test_parameters_in_quoted_and_camel_case_forms(tmp_path, name, body):
+    _write(tmp_path, name, body)
+    report = _report(tmp_path)
+    assert report.param_hits and report.exit_code() == 2
+
+
+def test_parameters_passed_through_a_dict_in_python(tmp_path):
+    _write(tmp_path, "a.py", 'params = {"model": "claude-opus-4-7", "temperature": 0}\nclient.messages.create(**params)\n')
+    assert _report(tmp_path).exit_code() == 2
+
+
+@pytest.mark.parametrize("name,body", [
+    # Pinecone's topK, in a RAG file that also calls Claude
+    ("rag.ts", 'const m = "claude-opus-4-7";\nindex.query({ vector: v, topK: 5 })\n'),
+    ("a.py", 'M = "claude-opus-4-7"\nkwargs = {}\nkwargs["top_p"] = 0.9\n'),
+])
+def test_ambiguous_parameter_forms_are_for_review(tmp_path, name, body):
+    _write(tmp_path, name, body)
+    report = _report(tmp_path)
+    assert report.param_hits and not report.param_hits[0].certain
+    assert report.exit_code() == 0 and _report(tmp_path, strict=True).exit_code() == 1
+
+
+def test_a_tool_schema_is_not_a_request(tmp_path):
+    _write(tmp_path, "tools.py", 'M = "claude-opus-4-7"\nTOOL = {"name": "w", "input_schema": {"properties": {"temperature": {"type": "number"}}}}\n')
+    _write(tmp_path, "tools.json", '{"model": "claude-opus-4-7", "properties": {"temperature": {"type": "number"}}}\n')
+    assert _report(tmp_path).param_hits == []
+
+
+def test_a_bom_or_an_unparseable_python_file_still_gets_parameter_rules(tmp_path):
+    (tmp_path / "bom.py").write_bytes(
+        b'\xef\xbb\xbfMODEL = "claude-opus-4-7"\nclient.create(model=MODEL, temperature=0)\n'
+    )
+    _write(tmp_path, "future.py", 'M = "claude-opus-4-7"\nclient.create(model=M, temperature=0)\nprint "py2"\n')
+    assert {h.path.name for h in _report(tmp_path).param_hits} == {"bom.py", "future.py"}
+
+
+def test_line_numbers_survive_a_form_feed(tmp_path):
+    _write(
+        tmp_path,
+        "app.py",
+        'import anthropic\n\x0c\nMODEL = "claude-opus-4-7"\nLEGACY = "claude-2.0"  # depdesk: ignore\n'
+        "client.messages.create(model=MODEL, temperature=0)\n",
+    )
+    report = _report(tmp_path)
+    assert [f.identifier for f in report.findings] == []
+    assert [(h.parameter, h.line) for h in report.param_hits] == [("temperature", 5)]
+    assert "temperature=0" in report.param_hits[0].excerpt
+
+
+@pytest.mark.parametrize("pragma", [
+    "# depdesk: ignore until 2026-12-01",
+    "# depdesk: ignore until:2026-12-01",
+    "# depdesk: ignore-until=2026-12-01",
+    "# depdesk: ignored, fix before release",
+])
+def test_a_mistyped_pragma_silences_nothing(tmp_path, pragma):
+    _write(tmp_path, "a.py", f'M = "claude-2.0"  {pragma}\n')
+    assert _ids(tmp_path) == ["claude-2.0"]
+
+
+def test_the_well_formed_pragmas_still_work(tmp_path):
+    _write(tmp_path, "a.py", 'A = "claude-2.0"  # depdesk: ignore\nB = "claude-2.1"  # depdesk: ignore UNTIL=2026-12-01\n')
+    _write(tmp_path, "b.md", 'Old: "claude-2.0" <!-- depdesk: ignore -->\n')
+    assert _ids(tmp_path) == []
+
+
+def test_bare_o1_needs_to_look_like_a_model_name(tmp_path):
+    _write(tmp_path, "t.py", "def overlap(o1, o2):\n    return o1 == o2\n")
+    assert _ids(tmp_path) == []
+    _write(tmp_path, "m.py", 'M = "o1"\n')
+    _write(tmp_path, ".env", "OPENAI_MODEL=o1\n")
+    _write(tmp_path, "c.yaml", "model: o1  # the reasoning one\n")
+    report = _report(tmp_path)
+    assert {h.path.name for f in report.findings for h in f.locations} == {"m.py", ".env", "c.yaml"}
+
+
+def test_env_directories_are_read_and_virtualenvs_are_not(tmp_path):
+    _write(tmp_path, "deploy/env/production.env", "ANTHROPIC_MODEL=claude-3-opus-20240229\n")
+    _write(tmp_path, "tools/pyenv/pyvenv.cfg", "home = /usr\n")
+    _write(tmp_path, "tools/pyenv/lib/x.py", 'M = "claude-2.0"\n')
+    assert _ids(tmp_path) == ["claude-3-opus-20240229"]
+
+
+def test_extensionless_config_is_read_in_the_tree_walk(tmp_path):
+    _write(tmp_path, ".envrc", "export ANTHROPIC_MODEL=claude-3-opus-20240229\n")
+    _write(tmp_path, "bin/summarize", '#!/usr/bin/env python3\nM = "claude-2.0"\n')
+    _write(tmp_path, "Jenkinsfile", 'env.MODEL = "claude-2.1"\n')
+    assert _ids(tmp_path) == ["claude-2.0", "claude-2.1", "claude-3-opus-20240229"]
+
+
+def test_exclude_globs_ignore_the_directories_above_the_root(tmp_path, monkeypatch, capsys):
+    # GitHub checks a repository called docs out at .../docs/docs.
+    checkout = tmp_path / "docs" / "docs"
+    _write(checkout, "app.py", 'M = "claude-2.0"\n')
+    _write(checkout, "docs/old.md", 'M = "claude-2.1"\n')
+    monkeypatch.chdir(checkout)
+    assert main(["check", ".", "--exclude", "*/docs/*", "--today", "2026-09-20", "--json"]) == 2
+    found = json.loads(capsys.readouterr().out)["findings"]
+    assert [f["identifier"] for f in found] == ["claude-2.0"]
+
+
+def test_an_id_that_ends_a_sentence_is_found(tmp_path):
+    _write(tmp_path, "notes.md", "The summarizer still calls claude-3-opus-20240229.\nNot gpt-4.1 though.\n")
+    ids = _ids(tmp_path)
+    assert "claude-3-opus-20240229" in ids and "gpt-4" not in ids
+
+
+def test_overlapping_roots_scan_each_file_once(tmp_path):
+    path = _write(tmp_path, "app/a.py", 'M = "claude-2.0"\n')
+    cat = _catalog()
+    result = scan([tmp_path, path, tmp_path], cat, today=TODAY)
+    assert result.files_scanned == 1 and len(result.hits) == 1
+
+
+def test_endpoints_and_headers_are_matched_the_way_code_writes_them(tmp_path):
+    _write(
+        tmp_path,
+        "client.py",
+        'requests.get("https://api.openai.com/v1/prompts")\n'
+        'headers = {"OpenAI-Beta": "assistants=v1"}\n',
+    )
+    assert _ids(tmp_path) == ["/v1/prompts", "OpenAI-Beta: assistants=v1"]
+
+
+def test_fine_tuned_babbage_uses_its_own_date(tmp_path):
+    _write(tmp_path, "a.py", 'M = "ft:babbage-002:acme::abc123"\n')
+    finding = _report(tmp_path).findings[0]
+    assert finding.identifier == "ft:babbage-002"
+    assert finding.entry.retires_on.isoformat() == "2026-10-23"
+
+
+@pytest.mark.parametrize("body", [
+    "[]",
+    "null",
+    '{"schema":1,"verified_on":"2026-09-24","parameters":[{"provider":"x"}]}',
+    '{"schema":1,"verified_on":"2026-09-24","models":{"a":1}}',
+    '{"schema":1,"verified_on":"2026-09-24","models":["a"]}',
+    '{"schema":1,"verified_on":"2026-09-24","models":[{"id":["a"],"status":"active"}]}',
+])
+def test_a_broken_catalog_exits_3_not_with_a_traceback(tmp_path, capsys, body):
+    path = _write(tmp_path, "cat.json", body)
+    _write(tmp_path, "src/a.py", "x = 1\n")
+    assert main(["check", str(tmp_path / "src"), "--catalog", str(path)]) == 3
+    assert main(["list", "--catalog", str(path)]) == 3
+    assert main(["check", str(tmp_path / "src"), "--catalog", str(tmp_path)]) == 3
+    capsys.readouterr()
+
+
+@pytest.mark.parametrize("args", [
+    ["--fail-in", "-1"],
+    ["--fail-in", "sixty"],
+    ["--sunset-in", "-5"],
+    ["--locations", "-1"],
+    ["--today", "2027-13-01"],
+    ["--stirct"],
+])
+def test_invocation_errors_exit_3(tmp_path, capsys, args):
+    _write(tmp_path, "a.py", "x = 1\n")
+    with pytest.raises(SystemExit) as exc:
+        main(["check", str(tmp_path), *args])
+    assert exc.value.code == 3
+    capsys.readouterr()
+
+
+def test_the_summary_counts_parameters(tmp_path):
+    _write(tmp_path, "a.py", 'c.messages.create(model="claude-opus-5", temperature=0)\n')
+    report = _report(tmp_path)
+    assert "Summary: 1 deprecated parameter use(s)." in render_text(report)
+    assert report.exit_code() == 2
+
+
+def test_sunset_in_zero_is_off(tmp_path):
+    _write(tmp_path, "a.py", 'M = "claude-opus-4-8"\n')  # earliest retirement 2027-05-28
+    cat = _catalog()
+    result = scan([tmp_path], cat, today=date(2027, 6, 1))
+    assert build(result, cat, today=date(2027, 6, 1), fail_in=90, sunset_in=0).findings == []
+    sunset = build(result, cat, today=date(2027, 6, 1), fail_in=90, sunset_in=30)
+    assert "passed 4 days ago" in render_text(sunset)
+
+
+def test_a_dead_replacement_points_at_the_living_one(tmp_path):
+    _write(tmp_path, "a.py", 'M = "chatgpt-4o-latest"\n')
+    finding = _report(tmp_path).findings[0]
+    assert finding.replacement == "gpt-5.1-chat-latest"
+    assert finding.replacement_note == "itself retired; its replacement is gpt-5.6-sol"
+
+
+def test_locations_zero_still_annotates(tmp_path, monkeypatch):
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(tmp_path))
+    _write(tmp_path, "a.py", 'M = "claude-2.0"\n')
+    assert len(github.annotations(_report(tmp_path), limit=0)) == 1
+
+
+def test_no_unknown_does_not_claim_a_section_it_hid(tmp_path):
+    _write(tmp_path, "a.py", "x = 1\n")
+    cat = _catalog()
+    report = build(scan([tmp_path], cat, today=TODAY), cat, today=TODAY, fail_in=90, sunset_in=0,
+                   usage={"claude-foo-9": 1.0}, usage_shares={"claude-foo-9": 1.0},
+                   include_unknown=False)
+    assert "left out because of --no-unknown" in render_text(report)
+
+
+def test_output_survives_a_stdout_that_cannot_encode_it(tmp_path):
+    _write(tmp_path, "a.py", 'MODEL = "claude-opus-4-1-20250805"  # → migrate \U0001f680\n')
+    env = dict(os.environ, PYTHONIOENCODING="cp1252", PYTHONPATH=str(Path(__file__).resolve().parent.parent))
+    done = subprocess.run(
+        [sys.executable, "-m", "depdesk", "check", str(tmp_path), "--no-github"],
+        env=env, capture_output=True,
+    )
+    assert done.returncode == 2 and b"Traceback" not in done.stderr
+
+
+@pytest.mark.parametrize("csv_text,expected", [
+    ("date,api_key_name,model,output_tokens\nd,prod,claude-2.0,900\nd,prod,claude-2.1,100\n", 0.9),
+    ("usage_date_utc,model_version,uncached_input_tokens\nd,claude-2.0,900\nd,claude-2.1,100\n", 0.9),
+    ("model;requests\nclaude-2.0;300\nclaude-2.1;100\n", 0.75),
+    ("﻿model,requests\nclaude-2.0,3\nclaude-2.1,1\n", 0.75),
+    ("model,requests\nclaude-2.0,NaN\nclaude-2.0,-5\nclaude-2.0,9\nclaude-2.1,1\n", 0.9),
+])
+def test_usage_columns_are_chosen_by_what_they_hold(tmp_path, csv_text, expected):
+    path = _write(tmp_path, "u.csv", csv_text)
+    totals, _ = load_usage(path)
+    assert share(totals)["claude-2.0"] == pytest.approx(expected)
+
+
+def test_usage_json_rows_use_the_same_hints(tmp_path):
+    path = _write(tmp_path, "u.json", json.dumps({"data": [
+        {"model": "claude-2.0", "input_tokens": 900}, {"model": "claude-2.1", "input_tokens": 100},
+    ]}))
+    totals, column = load_usage(path)
+    assert column == "input_tokens" and share(totals)["claude-2.0"] == 0.9
+
+
+def test_usage_errors_instead_of_silent_zeros(tmp_path):
+    from depdesk.usage import UsageError
+    path = _write(tmp_path, "u.csv", "model,requests\nclaude-2.0,0\n")
+    with pytest.raises(UsageError):
+        load_usage(path)
+    path = _write(tmp_path, "v.csv", "model,input_tokens\nclaude-2.0,5\n")
+    with pytest.raises(UsageError):
+        load_usage(path, count_column="inputtokens")
+
+
+PAGE = b"""<html><nav>Recent: Bringing GPT-Live-1 to life</nav>
+<main>As we launch safer models... <table>
+<tr><td>Aug 10, 2026</td><td>gpt-5.2-chat-latest</td></tr>
+<tr><td>October 23, 2026</td><td>o1-2024-12-17</td></tr>
+<tr><td>December 11, 2026</td><td>o3-2025-04-16</td></tr>
+<tr><td>2026\xe2\x80\x9108\xe2\x80\x9126</td><td>Assistants API</td></tr>
+</table></main>Ask AI</html>"""
+BETWEEN = ["As we launch", "Ask AI"]
+
+
+@pytest.mark.parametrize("old,new", [
+    (b"Aug 10, 2026", b"Sep 30, 2026"),
+    (b"2026\xe2\x80\x9108\xe2\x80\x9126", b"2026\xe2\x80\x9112\xe2\x80\x9126"),
+    # a row moving to a date the page already names elsewhere
+    (b"October 23, 2026</td><td>o1", b"December 11, 2026</td><td>o1"),
+])
+def test_upstream_sees_every_date_change(old, new):
+    assert upstream_mod.fingerprint(PAGE, BETWEEN) != upstream_mod.fingerprint(PAGE.replace(old, new), BETWEEN)
+
+
+def test_upstream_ignores_the_navigation():
+    moved = PAGE.replace(b"GPT-Live-1", b"GPT-Live-2")
+    assert upstream_mod.fingerprint(PAGE, BETWEEN) == upstream_mod.fingerprint(moved, BETWEEN)
+
+
+def test_upstream_treats_an_empty_page_or_a_crash_as_could_not_check(monkeypatch, tmp_path, capsys):
+    cat = _catalog()
+    monkeypatch.setattr(upstream_mod, "fetch", lambda url: b"<html><div id=root></div></html>")
+    assert all(not r.ok for r in upstream_mod.check(cat))
+
+    def explode(url):
+        raise ValueError("unknown url type")
+    monkeypatch.setattr(upstream_mod, "fetch", explode)
+    results = upstream_mod.check(cat)
+    assert all(not r.ok for r in results) and exit_code(results) == 3
+
+
+def test_upstream_save_reports_a_source_it_could_not_fetch(monkeypatch, tmp_path, capsys):
+    copy = _write(tmp_path, "catalog.json", catalog_mod.load().path.read_text(encoding="utf-8"))
+    real = PAGE.replace(b"As we launch", b"As we launch As safer and more capable models launch")
+
+    def half(url):
+        if "openai" in url:
+            raise OSError("timed out")
+        return real + b" Was this page helpful"
+    monkeypatch.setattr(upstream_mod, "fetch", half)
+    assert main(["upstream", "--catalog", str(copy), "--save"]) == 3
+    capsys.readouterr()
+
+
+def test_the_shipped_catalog_agrees_with_itself():
+    cat = _catalog()
+    index = cat.by_id
+    for entry in cat.entries:
+        if entry.status == "deprecated" and entry.retires_on:
+            assert entry.retires_on >= cat.verified_on, f"{entry.id} is past its date but still deprecated"
+        if entry.status == "retired" and entry.retires_on:
+            assert entry.retires_on <= cat.verified_on, f"{entry.id} is retired with a future date"
+        if entry.replacement and " " not in entry.replacement and entry.kind == "model":
+            assert entry.replacement not in index or index[entry.replacement].id, entry.id
+
+
+def _readme_block(after: str) -> list:
+    readme = (Path(__file__).resolve().parent.parent / "README.md").read_text(encoding="utf-8")
+    start = readme.index(after) + len(after)
+    return readme[start:readme.index("```", start)].splitlines()
+
+
+def test_the_readme_sample_is_what_the_tool_prints(monkeypatch, capsys):
+    # "Every line of that output is real" was true on the day it was written
+    # and then drifted: wrong line numbers, a summary one finding short. The
+    # block is now checked against the tool on the date it was captured.
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.chdir(Path(__file__).resolve().parent.parent / "examples" / "legacy-app")
+    assert main(["check", "app", "--fail-in", "60", "--today", "2026-09-26", "--no-github"]) == 2
+    printed = capsys.readouterr().out.splitlines()
+    block = _readme_block("$ depdesk check app --fail-in 60\n")
+    assert block[: block.index("$ echo $?")] == printed
+
+    main(["check", "app", "--usage", "usage.csv", "--today", "2026-09-26", "--no-github"])
+    printed = capsys.readouterr().out.splitlines()
+    excerpt = [line for line in _readme_block("```\nALREADY RETIRED\n") if line]
+    remaining = iter(printed)
+    assert all(any(line == seen for seen in remaining) for line in excerpt)
+
+
+def test_products_are_still_found_in_prose(tmp_path):
+    # The bare id rule for o1 briefly swallowed every id without a hyphen,  # depdesk: ignore
+    # products included, which a scan of a real repository caught.
+    _write(tmp_path, "notes.md", "We still build flows in Agent Builder and the Assistants API.\n")
+    assert _ids(tmp_path) == ["Agent Builder", "Assistants API"]
+
+
+def test_an_unlistable_directory_is_reported_not_a_crash(tmp_path, capsys):
+    if os.geteuid() == 0:
+        pytest.skip("root can list anything")
+    _write(tmp_path, "ok.py", 'M = "claude-2.0"\n')
+    locked = tmp_path / "pgdata"
+    locked.mkdir()
+    locked.chmod(0)
+    try:
+        assert main(["check", str(tmp_path), "--no-github"]) == 2
+        assert "directory could not be listed" in capsys.readouterr().out
+    finally:
+        locked.chmod(0o755)
+
+
+def test_generic_rest_paths_only_count_on_an_openai_line(tmp_path):
+    _write(tmp_path, "a.py", 'S = "https://api.spotify.com/v1/search"\nR = "/api/v1/prompts"\n')
+    assert _ids(tmp_path) == []
+    _write(tmp_path, "b.py", 'client = OpenAI(); client.get("/v1/prompts")\nh["OpenAI-Beta"] = "assistants=v1"\n')
+    assert _ids(tmp_path) == ["/v1/prompts", "OpenAI-Beta: assistants=v1"]
+
+
+def test_large_binaries_are_not_unread_text(tmp_path, monkeypatch):
+    monkeypatch.setattr(scan_mod, "MAX_BYTES", 100)
+    (tmp_path / "weights.onnx").write_bytes(b"\x00" * 500)
+    (tmp_path / "server").write_bytes(b"\x7fELF\x00" + b"\x00" * 500)
+    (tmp_path / "blob.dat").write_bytes(b"\x00" * 500)
+    _write(tmp_path, "a.py", "x = 1\n")
+    report = _report(tmp_path, strict=True)
+    assert report.skipped == [] and report.exit_code() == 0
+
+
+def test_a_source_file_with_a_nul_is_still_read(tmp_path):
+    (tmp_path / "split.py").write_bytes(b'SEP = "\x00"\nMODEL = "claude-2.0"\n')
+    assert _ids(tmp_path) == ["claude-2.0"]
+
+
+def test_prefix_checks_are_not_uses_of_the_shorter_model(tmp_path):
+    _write(tmp_path, "router.py", 'if model.startswith("gpt-4."):\n    pass\nfnmatch(model, "gpt-4.*")\n')
+    assert "gpt-4" not in _ids(tmp_path)
+
+
+@pytest.mark.parametrize("name,body", [
+    ("docker-compose.yml", "services:\n  app:\n    environment:\n      - MODEL=o1\n"),
+    ("Dockerfile", "FROM python\nENV MODEL=o1\n"),
+    ("ci.yml", "matrix:\n  model: [o1, gpt-4o]\n"),
+    ("models.yaml", "models:\n  - o1\n"),
+    ("run.sh", "python app.py --model o1\n"),
+])
+def test_bare_o1_in_config_forms(tmp_path, name, body):
+    _write(tmp_path, name, body)
+    assert "o1" in _ids(tmp_path)
+
+
+def test_bare_o1_as_a_variable_is_not_a_model(tmp_path):
+    _write(tmp_path, "geometry.py", "def overlap(o1, o2):\n    first = o1\n    return f(left=o1, right=o2)\n")
+    assert _ids(tmp_path) == []
+
+
+def test_exclude_patterns_written_from_the_working_directory(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    _write(tmp_path, "src/generated/client.py", 'M = "claude-2.0"\n')
+    _write(tmp_path, "src/app/main.py", "x = 1\n")
+    for pattern in ("src/generated/*", "generated/*"):
+        assert main(["check", "src", "--exclude", pattern, "--no-github"]) == 0
+        assert main(["check", "src/generated/client.py", "src/app/main.py", "--exclude", pattern, "--no-github"]) == 0
+    capsys.readouterr()
+
+
+def test_usage_only_findings_show_when_no_file_was_read(tmp_path, capsys):
+    path = _write(tmp_path, "logo.png", "x")
+    usage = _write(tmp_path, "u.csv", "model,requests\nclaude-2.0,9\n")
+    assert main(["check", str(path), "--usage", str(usage), "--no-github"]) == 2
+    assert "claude-2.0" in capsys.readouterr().out
+
+
+def test_european_numbers_in_a_semicolon_csv(tmp_path):
+    path = _write(tmp_path, "u.csv", "model;requests\nclaude-2.0;1.420\nclaude-2.1;0,50\n")
+    totals, _ = load_usage(path)
+    assert totals == {"claude-2.0": 1420.0, "claude-2.1": 0.5}
+
+
+def test_usage_envelope_with_more_keys_and_bad_values(tmp_path):
+    path = _write(tmp_path, "u.json", json.dumps({"object": "list", "has_more": False,
+                                                 "data": [{"model": "claude-2.0", "requests": 5}]}))
+    assert load_usage(path)[0] == {"claude-2.0": 5.0}
+    path = _write(tmp_path, "v.json", '{"claude-2.0": 120, "claude-opus-5": NaN, "x": -3}')
+    assert load_usage(path)[0]["claude-2.0"] == 120.0
+
+
+def test_a_malformed_between_is_a_catalog_error(tmp_path, capsys):
+    raw = json.loads(catalog_mod.load().path.read_text(encoding="utf-8"))
+    raw["sources"][0]["between"] = ["only one"]
+    path = _write(tmp_path, "cat.json", json.dumps(raw))
+    assert main(["upstream", "--catalog", str(path)]) == 3
+    capsys.readouterr()
+
+
+def test_a_marker_that_repeats_is_not_trusted():
+    text = "nav As we launch ... rows ... Try Ask AI ... more rows ... Ask AI footer"
+    assert upstream_mod.article(text, BETWEEN) == (text, False)
+
+
+def test_an_embedded_token_is_listed_once(tmp_path):
+    _write(tmp_path, "a.py", 'RUN = "gemini-pro-vs-gpt-4"\n')
+    report = _report(tmp_path)
+    assert [len(f.locations) for f in report.findings] == [1] * len(report.findings)

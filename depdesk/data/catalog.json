@@ -7,13 +7,21 @@
       "provider": "anthropic",
       "url": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
       "verified_on": "2026-09-24",
-      "sha256": "e7723fb98361dd4f9b42f5c19279bf8dbf89719231c1d15425b2b9b19ef9074b"
+      "sha256": "6efd3488e9cbec985ac441c192e5108e557dfdfdfe140c07ca3e8f9fd1d836b4",
+      "between": [
+        "As safer and more capable models launch",
+        "Was this page helpful"
+      ]
     },
     {
       "provider": "openai",
       "url": "https://developers.openai.com/api/docs/deprecations",
       "verified_on": "2026-09-24",
-      "sha256": "daad91fa56735b8d48bdfa3a223da375eca75f22b936f6ecdbe7c8a1dc9e1188"
+      "sha256": "09335a2135ad160976f932bb48bf1054327d53811fc857c71726a372674d94b5",
+      "between": [
+        "As we launch",
+        "Ask AI"
+      ]
     }
   ],
   "policies": [
@@ -149,6 +157,13 @@
       "earliest_retirement": "2026-10-15"
     },
     {
+      "id": "claude-haiku-4-5",
+      "provider": "anthropic",
+      "status": "active",
+      "earliest_retirement": "2026-10-15",
+      "source": "https://platform.claude.com/docs/en/about-claude/models/overview"
+    },
+    {
       "id": "claude-3-5-haiku-20241022",
       "provider": "anthropic",
       "status": "retired",
@@ -282,7 +297,7 @@
       "status": "deprecated",
       "deprecated_on": "2026-08-26",
       "retires_on": "2027-02-26",
-      "replacement": "gpt-transcribe"
+      "replacement": "gpt-live-transcribe or gpt-transcribe"
     },
     {
       "id": "gpt-4o-transcribe",
@@ -290,7 +305,7 @@
       "status": "deprecated",
       "deprecated_on": "2026-08-26",
       "retires_on": "2027-02-26",
-      "replacement": "gpt-transcribe"
+      "replacement": "gpt-live-transcribe or gpt-transcribe"
     },
     {
       "id": "gpt-4o-mini-transcribe",
@@ -298,7 +313,7 @@
       "status": "deprecated",
       "deprecated_on": "2026-08-26",
       "retires_on": "2027-02-26",
-      "replacement": "gpt-transcribe"
+      "replacement": "gpt-live-transcribe or gpt-transcribe"
     },
     {
       "id": "gpt-4o-transcribe-diarize",
@@ -306,7 +321,7 @@
       "status": "deprecated",
       "deprecated_on": "2026-08-26",
       "retires_on": "2027-02-26",
-      "replacement": "gpt-transcribe"
+      "replacement": "gpt-live-transcribe or gpt-transcribe"
     },
     {
       "id": "gpt-realtime",
@@ -410,7 +425,7 @@
       "status": "deprecated",
       "deprecated_on": "2026-06-11",
       "retires_on": "2026-12-11",
-      "replacement": "gpt-5.6-sol"
+      "replacement": "gpt-5.6-sol (reasoning.mode: pro)"
     },
     {
       "id": "o3-2025-04-16",
@@ -426,7 +441,7 @@
       "status": "deprecated",
       "deprecated_on": "2026-06-11",
       "retires_on": "2026-12-11",
-      "replacement": "gpt-5.6-sol"
+      "replacement": "gpt-5.6-sol (reasoning.mode: pro)"
     },
     {
       "id": "gpt-image-1-mini",
@@ -514,7 +529,8 @@
       "status": "deprecated",
       "deprecated_on": "2026-04-22",
       "retires_on": "2026-10-23",
-      "replacement": "gpt-5.6-sol"
+      "replacement": "gpt-5.6-sol",
+      "note": "The page lists it twice: shut down 2026-03-26 in the 2025-09-26 notice, and 2026-10-23 in the newer 2026-04-22 one. The newer date is used."
     },
     {
       "id": "gpt-4-turbo",
@@ -594,7 +610,7 @@
       "status": "deprecated",
       "deprecated_on": "2026-04-22",
       "retires_on": "2026-10-23",
-      "replacement": "gpt-5.6-sol"
+      "replacement": "gpt-5.6-sol (reasoning.mode: pro)"
     },
     {
       "id": "o1-pro",
@@ -602,7 +618,7 @@
       "status": "deprecated",
       "deprecated_on": "2026-04-22",
       "retires_on": "2026-10-23",
-      "replacement": "gpt-5.6-sol"
+      "replacement": "gpt-5.6-sol (reasoning.mode: pro)"
     },
     {
       "id": "o3-mini-2025-01-31",
@@ -694,6 +710,24 @@
       "deprecated_on": "2025-09-26",
       "retires_on": "2026-09-28",
       "replacement": "gpt-5.6-terra"
+    },
+    {
+      "id": "ft:babbage-002",
+      "provider": "openai",
+      "status": "deprecated",
+      "deprecated_on": "2026-04-22",
+      "retires_on": "2026-10-23",
+      "replacement": "gpt-5.6-terra",
+      "note": "Fine-tuned models on babbage-002 (listed as ft-babbage-002)."
+    },
+    {
+      "id": "ft:davinci-002",
+      "provider": "openai",
+      "status": "deprecated",
+      "deprecated_on": "2026-04-22",
+      "retires_on": "2026-10-23",
+      "replacement": "gpt-5.6-terra",
+      "note": "Fine-tuned models on davinci-002 (listed as ft-davinci-002)."
     },
     {
       "id": "gpt-3.5-turbo-1106",
@@ -892,14 +926,32 @@
       "provider": "openai",
       "status": "retired",
       "deprecated_on": "2025-09-26",
-      "retires_on": "2026-03-26"
+      "retires_on": "2026-03-26",
+      "replacement": "gpt-5 or gpt-4.1"
     },
     {
       "id": "gpt-4-0125-preview",
       "provider": "openai",
       "status": "retired",
       "deprecated_on": "2025-09-26",
-      "retires_on": "2026-03-26"
+      "retires_on": "2026-03-26",
+      "replacement": "gpt-5 or gpt-4.1"
+    },
+    {
+      "id": "gpt-4-turbo-preview",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2025-09-26",
+      "retires_on": "2026-03-26",
+      "replacement": "gpt-5 or gpt-4.1"
+    },
+    {
+      "id": "gpt-4-turbo-preview-completions",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2025-09-26",
+      "retires_on": "2026-03-26",
+      "replacement": "gpt-5 or gpt-4.1"
     },
     {
       "id": "gpt-4o-realtime-preview",
@@ -1044,6 +1096,263 @@
       "deprecated_on": "2023-06-13",
       "retires_on": "2024-09-13",
       "replacement": "gpt-3.5-turbo"
+    },
+    {
+      "id": "gpt-4o-realtime-preview-2024-10-01",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2025-06-10",
+      "retires_on": "2025-10-10",
+      "replacement": "gpt-realtime-1.5"
+    },
+    {
+      "id": "gpt-4o-audio-preview-2024-10-01",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2025-06-10",
+      "retires_on": "2025-10-10",
+      "replacement": "gpt-audio-1.5"
+    },
+    {
+      "id": "o1-preview",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2025-04-28",
+      "retires_on": "2025-07-28",
+      "replacement": "o3"
+    },
+    {
+      "id": "o1-mini",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2025-04-28",
+      "retires_on": "2025-10-27",
+      "replacement": "o4-mini"
+    },
+    {
+      "id": "text-ada-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "gpt-3.5-turbo-instruct"
+    },
+    {
+      "id": "text-babbage-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "gpt-3.5-turbo-instruct"
+    },
+    {
+      "id": "text-curie-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "gpt-3.5-turbo-instruct"
+    },
+    {
+      "id": "text-davinci-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "gpt-3.5-turbo-instruct"
+    },
+    {
+      "id": "text-davinci-002",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "gpt-3.5-turbo-instruct"
+    },
+    {
+      "id": "text-davinci-003",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "gpt-3.5-turbo-instruct"
+    },
+    {
+      "id": "text-davinci-edit-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "gpt-4o"
+    },
+    {
+      "id": "code-davinci-edit-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "gpt-4o"
+    },
+    {
+      "id": "text-similarity-ada-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "text-search-ada-doc-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "text-search-ada-query-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "code-search-ada-code-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "code-search-ada-text-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "text-similarity-babbage-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "text-search-babbage-doc-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "text-search-babbage-query-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "code-search-babbage-code-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "code-search-babbage-text-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "text-similarity-curie-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "text-search-curie-doc-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "text-search-curie-query-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "text-similarity-davinci-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "text-search-davinci-doc-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "text-search-davinci-query-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "text-embedding-3-small"
+    },
+    {
+      "id": "code-davinci-002",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "replacement": "gpt-3.5-turbo-instruct",
+      "note": "Also listed with a 2023-03-23 shutdown in the 2023-03-20 Codex notice. The newer notice is used."
+    },
+    {
+      "id": "code-davinci-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-03-20",
+      "retires_on": "2023-03-23",
+      "replacement": "gpt-4o"
+    },
+    {
+      "id": "code-cushman-002",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-03-20",
+      "retires_on": "2023-03-23",
+      "replacement": "gpt-4o"
+    },
+    {
+      "id": "code-cushman-001",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-03-20",
+      "retires_on": "2023-03-23",
+      "replacement": "gpt-4o"
     }
   ],
   "endpoints": [
@@ -1078,6 +1387,46 @@
       "deprecated_on": "2023-08-22",
       "retires_on": "2024-01-04",
       "note": "Use /v1/fine_tuning/jobs."
+    },
+    {
+      "id": "/v1/edits",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2023-07-06",
+      "retires_on": "2024-01-04",
+      "note": "Use /v1/chat/completions."
+    },
+    {
+      "id": "/v1/engines",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2022-06-03",
+      "retires_on": "2022-12-03",
+      "note": "Use /v1/models."
+    },
+    {
+      "id": "/v1/search",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2022-06-03",
+      "retires_on": "2022-12-03",
+      "note": "See the provider's transition guide."
+    },
+    {
+      "id": "/v1/classifications",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2022-06-03",
+      "retires_on": "2022-12-03",
+      "note": "See the provider's transition guide."
+    },
+    {
+      "id": "/v1/answers",
+      "provider": "openai",
+      "status": "retired",
+      "deprecated_on": "2022-06-03",
+      "retires_on": "2022-12-03",
+      "note": "See the provider's transition guide."
     }
   ],
   "products": [
@@ -1087,7 +1436,7 @@
       "status": "deprecated",
       "deprecated_on": "2026-06-03",
       "retires_on": "2026-11-30",
-      "note": "Dashboard and API. Provider suggests Promptfoo."
+      "note": "Dashboard and API. Existing evals become read-only on 2026-10-31. Provider suggests Promptfoo."
     },
     {
       "id": "Agent Builder",
@@ -1100,10 +1449,18 @@
     {
       "id": "Assistants API",
       "provider": "openai",
-      "status": "deprecated",
+      "status": "retired",
       "deprecated_on": "2025-08-20",
       "retires_on": "2026-08-26",
       "note": "Provider suggests Responses API and Conversations API."
+    },
+    {
+      "id": "Videos API",
+      "provider": "openai",
+      "status": "deprecated",
+      "deprecated_on": "2026-03-24",
+      "retires_on": "2026-09-24",
+      "note": "Removed together with the sora-2 models."
     }
   ],
   "parameters": [

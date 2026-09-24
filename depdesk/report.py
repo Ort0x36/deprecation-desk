@@ -8,7 +8,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from .catalog import Catalog, Entry
 from .scan import Hit, ParamHit, ScanResult, rule_for
@@ -61,6 +61,12 @@ class Finding:
     usage_count: Optional[float] = None
     usage_share: Optional[float] = None
     detail: Optional[str] = None
+    # Set when the provider's recommended replacement is itself deprecated or
+    # retired. The page keeps historical rows as they were written, so
+    # chatgpt-4o-latest still points at gpt-5.1-chat-latest, which is dead  # depdesk: ignore
+    # too, and printing that as the migration target sends people to a
+    # second migration.
+    replacement_note: Optional[str] = None
 
     @property
     def replacement(self) -> Optional[str]:
@@ -79,6 +85,8 @@ class Report:
     usage_ignored: List[str] = field(default_factory=list)
     fail_in: int = 90
     strict: bool = False
+    skipped: List[Tuple[Path, str]] = field(default_factory=list)
+    include_unknown: bool = True
 
     @property
     def worst(self) -> Optional[str]:
@@ -98,6 +106,8 @@ class Report:
         """Findings worth reading that do not fail the build on their own."""
         soft = sum(1 for f in self.findings if f.severity in WARNING)
         soft += sum(1 for h in self.param_hits if not h.certain)
+        # A file that could not be read is a place nobody looked.
+        soft += len(self.skipped)
         return soft
 
     def exit_code(self) -> int:
@@ -108,6 +118,34 @@ class Report:
         if self.strict and self.warnings:
             return 1
         return 0
+
+
+def _unknown_detail(identifier: str, embedded: Dict[str, str]) -> str:
+    inner = embedded.get(identifier)
+    if inner is None:
+        return "Not present in the catalog, so nothing can be said about it."
+    # The provider date would be a guess here: Bedrock, Vertex and Azure run
+    # their own retirement schedules, and the Anthropic page says so itself.
+    return (
+        f"Contains {inner}, but written this way it is probably a cloud platform "
+        "or deployment name, which follows that platform's own retirement schedule. "
+        "Check it there."
+    )
+
+
+def _replacement_note(entry: Entry, index: Dict[str, Entry]) -> Optional[str]:
+    """Follow the replacement while it points at something that is dying too."""
+    first = index.get(entry.replacement or "")
+    if first is None or first.status == "active":
+        return None
+    current, seen = first, {entry.id}
+    while current.replacement and current.replacement not in seen:
+        seen.add(current.id)
+        following = index.get(current.replacement)
+        if following is None or following.status == "active":
+            return f"itself {first.status}; its replacement is {current.replacement}"
+        current = following
+    return f"itself {first.status}, with no living replacement in the catalog"
 
 
 def build(
@@ -160,7 +198,7 @@ def build(
                     locations=locations,
                     usage_count=count,
                     usage_share=share,
-                    detail="Not present in the catalog, so nothing can be said about it.",
+                    detail=_unknown_detail(identifier, scan_result.embedded),
                 )
             )
             continue
@@ -174,7 +212,9 @@ def build(
             severity = "deprecated"
         else:
             until = entry.days_until_earliest(today)
-            if until is not None and until <= sunset_in:
+            # 0 is documented as off. It was not: from the earliest retirement
+            # date on, every default run reported a sunset nobody asked for.
+            if until is not None and sunset_in > 0 and until <= sunset_in:
                 severity = "sunset"
                 days = until
             else:
@@ -189,6 +229,7 @@ def build(
                 locations=locations,
                 usage_count=count,
                 usage_share=share,
+                replacement_note=_replacement_note(entry, index),
             )
         )
 
@@ -212,6 +253,8 @@ def build(
         usage_ignored=usage_ignored,
         fail_in=fail_in,
         strict=strict,
+        skipped=list(scan_result.skipped),
+        include_unknown=include_unknown,
     )
 
 
@@ -229,7 +272,10 @@ def _deadline(finding: Finding) -> str:
     if entry is None:
         return "unknown"
     if finding.severity == "sunset" and entry.earliest_retirement:
-        return f"not sooner than {entry.earliest_retirement.isoformat()} ({finding.days_left} days)"
+        when = entry.earliest_retirement.isoformat()
+        if finding.days_left is not None and finding.days_left < 0:
+            return f"not sooner than {when} (passed {abs(finding.days_left)} days ago)"
+        return f"not sooner than {when} ({finding.days_left} days)"
     if entry.retires_on is None:
         return entry.retirement_note or "no retirement date announced"
     if finding.days_left is None:
@@ -252,9 +298,11 @@ def render_text(report: Report, show_locations: int = 3, stream=None) -> str:
     if report.roots:
         header += " in " + ", ".join(_short(r) for r in report.roots)
     lines.append(header)
+    verified = report.catalog.verified_on.isoformat()
     lines.append(
         paint(
-            f"catalog verified {report.catalog.verified_on.isoformat()} ({age} days ago)",
+            f"catalog verified {verified} ({age} days ago)" if age >= 0
+            else f"catalog verified {verified}, after the date asked about",
             _DIM if colour else "",
         )
     )
@@ -268,9 +316,30 @@ def render_text(report: Report, show_locations: int = 3, stream=None) -> str:
         )
     lines.append("")
 
+    if report.skipped:
+        lines.append(paint("COULD NOT READ", _COLORS["due"]))
+        lines.append("")
+        for path, reason in report.skipped[:10]:
+            lines.append(f"  {_short(path)}: {reason}")
+        if len(report.skipped) > 10:
+            lines.append(f"  ... and {len(report.skipped) - 10} more")
+        lines.append("")
+
+    if report.scanned == 0 and not report.findings:
+        lines.append("None of the paths given is a file depdesk reads, so there was nothing to check.")
+        return "\n".join(lines) + "\n"
     if not report.findings and not report.param_hits:
-        lines.append("Nothing deprecated found. Every model identifier in this tree is active")
-        lines.append("with no retirement date inside the window you asked about.")
+        if report.usage_ignored and not report.include_unknown:
+            lines.append(
+                f"{len(report.usage_ignored)} model(s) in your usage data are not in the catalog "
+                "and were left out because of --no-unknown."
+            )
+        if report.skipped:
+            lines.append("Nothing deprecated found in the files that were read. The ones above")
+            lines.append("were not, so this is not a clean bill for the tree. --strict fails on them.")
+        else:
+            lines.append("Nothing deprecated found. Every model identifier in this tree is active")
+            lines.append("with no retirement date inside the window you asked about.")
         return "\n".join(lines) + "\n"
 
     current = None
@@ -293,7 +362,8 @@ def render_text(report: Report, show_locations: int = 3, stream=None) -> str:
                     f"      announced:   {finding.entry.deprecated_on.isoformat()}"
                 )
             if finding.replacement:
-                lines.append(f"      replacement: {finding.replacement}")
+                note = f" ({finding.replacement_note})" if finding.replacement_note else ""
+                lines.append(f"      replacement: {finding.replacement}{note}")
             if finding.entry.note:
                 lines.append(f"      note:        {finding.entry.note}")
         if finding.detail:
@@ -339,18 +409,27 @@ def render_text(report: Report, show_locations: int = 3, stream=None) -> str:
             lines.append("")
 
     if report.usage_ignored:
+        where = (
+            "and were reported as NOT IN CATALOG." if report.include_unknown
+            else "and were left out because of --no-unknown."
+        )
         lines.append(
-            f"{len(report.usage_ignored)} model(s) in your usage data are not in the catalog "
-            "and were reported as NOT IN CATALOG."
+            f"{len(report.usage_ignored)} model(s) in your usage data are not in the catalog {where}"
         )
         lines.append("")
 
     counts: Dict[str, int] = {}
     for finding in report.findings:
         counts[finding.severity] = counts.get(finding.severity, 0) + 1
-    summary = ", ".join(f"{count} {_LABELS[sev].lower()}" for sev, count in
-                        sorted(counts.items(), key=lambda kv: SEVERITIES.index(kv[0])))
-    lines.append(f"Summary: {summary or 'nothing to report'}.")
+    parts = [f"{count} {_LABELS[sev].lower()}" for sev, count in
+             sorted(counts.items(), key=lambda kv: SEVERITIES.index(kv[0]))]
+    # A run that found only a parameter printed "nothing to report" and then
+    # exited 2.
+    if report.param_hits:
+        parts.append(f"{len(report.param_hits)} deprecated parameter use(s)")
+    if report.skipped:
+        parts.append(f"{len(report.skipped)} file(s) not read")
+    lines.append(f"Summary: {', '.join(parts) or 'nothing to report'}.")
     if report.warnings and report.exit_code() == 0:
         # Without this line a list of deprecations followed by a green build
         # reads like a bug in the tool.
@@ -391,6 +470,7 @@ def render_json(report: Report) -> str:
                 if f.entry and f.entry.earliest_retirement else None,
                 "days_left": f.days_left,
                 "replacement": f.replacement,
+                "replacement_note": f.replacement_note,
                 "usage_count": f.usage_count,
                 "usage_share": f.usage_share,
                 "detail": f.detail,
@@ -401,6 +481,7 @@ def render_json(report: Report) -> str:
             }
             for f in report.findings
         ],
+        "skipped": [{"path": str(path), "reason": reason} for path, reason in report.skipped],
         "parameters": [
             {
                 "parameter": h.parameter,
@@ -414,4 +495,6 @@ def render_json(report: Report) -> str:
             for h in report.param_hits
         ],
     }
-    return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    # ASCII escapes survive any stdout encoding; the characters themselves
+    # turned into "?" on a Windows pipe.
+    return json.dumps(payload, indent=2, ensure_ascii=True) + "\n"

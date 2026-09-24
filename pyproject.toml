@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "depdesk"
-version = "0.2.0"
+version = "0.3.0"
 description = "Find deprecated and retired LLM models in your code, and fail CI before they break. OpenAI and Anthropic."
 readme = "README.md"
 requires-python = ">=3.9"

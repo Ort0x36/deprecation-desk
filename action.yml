@@ -24,58 +24,93 @@ inputs:
     required: false
     default: ""
   version:
-    description: depdesk version to install. Empty means the latest release
+    description: >-
+      A depdesk release to use instead of the code of this action ref, for
+      example "0.3.0". Empty, the default, runs the depdesk that ships with the
+      ref you pinned, so @v1 or a commit SHA pins the tool and its catalog too
     required: false
     default: ""
   args:
-    description: Extra arguments passed through to depdesk check
+    description: >-
+      Extra arguments for depdesk check, split the way a shell would split
+      them, so quotes and several lines both work
     required: false
     default: ""
+
+outputs:
+  exit-code:
+    description: The depdesk exit code, 0 to 3, so a workflow can tell a retired model from a broken run
+    value: ${{ steps.run.outputs.exit-code }}
 
 runs:
   using: composite
   steps:
-    - name: Install depdesk
-      shell: bash
-      env:
-        DEPDESK_VERSION: ${{ inputs.version }}
-      run: |
-        set -euo pipefail
-        # An install already on PATH wins, so a workflow can pin its own
-        # version, or test an unreleased checkout, without this step fighting
-        # it. Asking for a version explicitly always installs that one.
-        if [ -z "$DEPDESK_VERSION" ] && command -v depdesk >/dev/null 2>&1; then
-          echo "using $(depdesk --version), already installed"
-          exit 0
-        fi
-        spec="depdesk"
-        if [ -n "$DEPDESK_VERSION" ]; then
-          spec="depdesk==$DEPDESK_VERSION"
-        fi
-        python3 -m pip install --quiet --disable-pip-version-check "$spec"
-
     - name: Run depdesk
+      id: run
       shell: bash
       # Inputs arrive as environment variables rather than being interpolated
       # into the script, so a workflow that builds an input from somebody's
       # branch name cannot smuggle shell into this step.
       env:
+        DEPDESK_SOURCE: ${{ github.action_path }}
+        DEPDESK_VERSION: ${{ inputs.version }}
         DEPDESK_PATH: ${{ inputs.path }}
         DEPDESK_FAIL_IN: ${{ inputs.fail-in }}
         DEPDESK_USAGE: ${{ inputs.usage }}
         DEPDESK_STRICT: ${{ inputs.strict }}
         DEPDESK_ARGS: ${{ inputs.args }}
       run: |
-        set -euo pipefail
-        extra=()
-        if [ "$DEPDESK_STRICT" = "true" ]; then
-          extra+=(--strict)
+        # The runner starts bash with -e, and -e has to go: with it the script
+        # died on depdesk's own exit code and never wrote exit-code for 1 or 2.
+        set +e -u -o pipefail
+        PY=python3
+        command -v "$PY" >/dev/null 2>&1 || PY=python
+
+        # depdesk has no dependencies, so the action runs the copy that came
+        # with it instead of installing one. Up to 0.2.0 it ran pip into the
+        # system Python, which Ubuntu 24.04 and Debian refuse (PEP 668), and it
+        # skipped the install whenever any depdesk was on PATH, so a runner
+        # with an old one silently used the old catalog.
+        if [ -n "$DEPDESK_VERSION" ]; then
+          target="${RUNNER_TEMP:-/tmp}/depdesk-$DEPDESK_VERSION"
+          if ! "$PY" -m pip install --quiet --disable-pip-version-check \
+               --target "$target" "depdesk==$DEPDESK_VERSION"; then
+            echo "exit-code=3" >> "$GITHUB_OUTPUT"
+            exit 3
+          fi
+          export PYTHONPATH="$target"
+        else
+          export PYTHONPATH="$DEPDESK_SOURCE"
         fi
-        if [ -n "$DEPDESK_USAGE" ]; then
-          extra+=(--usage "$DEPDESK_USAGE")
-        fi
-        if [ -n "$DEPDESK_ARGS" ]; then
-          read -ra passthrough <<< "$DEPDESK_ARGS"
-          extra+=("${passthrough[@]}")
-        fi
-        depdesk check "$DEPDESK_PATH" --fail-in "$DEPDESK_FAIL_IN" ${extra[@]+"${extra[@]}"}
+
+        # The arguments are built in Python with shlex. The old `read -ra`
+        # kept only the first line of a multi-line args and passed quotes
+        # through literally, so --strict on a second line, or
+        # --exclude "docs/*", did nothing and the run passed.
+        "$PY" - <<'LAUNCH'
+        import sys
+        # Python puts the current directory, the repository being scanned,
+        # first on the path when it reads a script from stdin. A repository
+        # with its own email/ or random.py then replaced the standard library,
+        # and one with a depdesk/ replaced the pinned tool.
+        sys.path.pop(0)
+        import os, shlex
+        from depdesk.__main__ import main
+        argv = ["check", os.environ["DEPDESK_PATH"], "--fail-in", os.environ["DEPDESK_FAIL_IN"]]
+        if os.environ.get("DEPDESK_STRICT", "").strip().lower() == "true":
+            argv.append("--strict")
+        if os.environ.get("DEPDESK_USAGE"):
+            argv += ["--usage", os.environ["DEPDESK_USAGE"]]
+        try:
+            argv += shlex.split(os.environ.get("DEPDESK_ARGS", ""))
+        except ValueError as exc:
+            print(f"depdesk: could not read the args input: {exc}", file=sys.stderr)
+            sys.exit(3)
+        sys.exit(main(argv))
+        LAUNCH
+        code=$?
+        # No Python (127), or a crash with a traceback (1), is the tool not
+        # doing its job, never a verdict about the code.
+        if [ "$code" -gt 3 ]; then code=3; fi
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        exit "$code"

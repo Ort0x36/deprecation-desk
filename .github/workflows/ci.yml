@@ -39,14 +39,12 @@ jobs:
 
   action:
     # The action is the thing most people will actually run, so it gets the
-    # same treatment as the CLI: it has to fail on the broken sample and pass
-    # on the package.
+    # same treatment as the CLI. Every assertion checks the exact exit code:
+    # "the step failed" also passed when the step failed for the wrong reason,
+    # an unknown flag or a broken install, which proved nothing.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      - name: Test the action against this checkout, not the last release
-        run: python3 -m pip install --quiet .
 
       - id: broken
         continue-on-error: true
@@ -55,10 +53,12 @@ jobs:
           path: examples/legacy-app
           fail-in: "60"
 
-      - name: The action has to fail on the broken sample
+      - name: The broken sample has to exit 2
+        env:
+          CODE: ${{ steps.broken.outputs.exit-code }}
         run: |
-          if [ "${{ steps.broken.outcome }}" != "failure" ]; then
-            echo "the sample app is deprecated on purpose and the action passed it"
+          if [ "$CODE" != "2" ]; then
+            echo "expected exit 2 from the sample app, got '$CODE'"
             exit 1
           fi
 
@@ -67,7 +67,7 @@ jobs:
           path: depdesk
           fail-in: "60"
 
-      - name: A deprecation outside the window, for the two runs below
+      - name: A deprecation outside the window, for the runs below
         # whisper-1 retires 2027-02-26. The date is pinned with --today so
         # this does not turn into a failure the week it enters the window.
         run: |
@@ -87,12 +87,25 @@ jobs:
         with:
           path: far-sample
           fail-in: "60"
-          strict: "true"
-          args: --today 2026-09-20
+          # On a second line on purpose: the old parser dropped it.
+          args: |
+            --today 2026-09-20
+            --strict
 
-      - name: With strict the same warning has to fail
+      - name: With strict the same warning has to exit 1
+        env:
+          CODE: ${{ steps.strict.outputs.exit-code }}
         run: |
-          if [ "${{ steps.strict.outcome }}" != "failure" ]; then
-            echo "strict passed a deprecated model"
+          if [ "$CODE" != "1" ]; then
+            echo "expected exit 1 under strict, got '$CODE'"
             exit 1
           fi
+
+      - name: A released version is installed without touching the system Python
+        # The version input installs with pip --target, which PEP 668 allows.
+        uses: ./
+        with:
+          path: far-sample
+          fail-in: "60"
+          version: "0.2.0"
+          args: --today 2026-09-20

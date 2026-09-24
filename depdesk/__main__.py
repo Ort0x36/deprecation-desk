@@ -6,7 +6,7 @@ import argparse
 import sys
 from datetime import date
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import List, NoReturn, Optional, Sequence
 
 from . import __version__, github
 from .catalog import CatalogError, load
@@ -22,11 +22,35 @@ exit codes:
   1  only with --strict: a warning that would otherwise pass
   2  something is already retired, retires within --fail-in, or passes a
      parameter the model rejects
-  3  the tool could not do its job (bad catalog, unreadable usage file)
+  3  the tool could not do its job (bad catalog, unreadable usage file, a
+     directory in which no file could be read)
 
 The exit codes are the point: put `depdesk check` in CI and the build starts
 failing while there is still time to migrate, not the day the model dies.
 """
+
+
+class _Parser(argparse.ArgumentParser):
+    """Usage errors exit 3, like every other way the tool can fail to run.
+
+    argparse exits 2, which in this contract means "something is already
+    retired", so a mistyped flag in a CI file was reported as a dead model.
+    """
+
+    def error(self, message: str) -> NoReturn:
+        self.print_usage(sys.stderr)
+        self.exit(3, f"{self.prog}: error: {message}\n")
+
+
+def _days(raw: str) -> int:
+    # A negative window turned a model retiring tomorrow into a passing build.
+    try:
+        value = int(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number of days: {raw}")
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"cannot be negative: {raw}")
+    return value
 
 
 def _add_check_arguments(parser: argparse.ArgumentParser) -> None:
@@ -43,7 +67,7 @@ def _add_check_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--usage-count-column", metavar="NAME", help="override the column to sum")
     parser.add_argument(
         "--fail-in",
-        type=int,
+        type=_days,
         default=90,
         metavar="DAYS",
         help="treat a retirement inside this many days as failing (default: 90)",
@@ -56,7 +80,7 @@ def _add_check_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--sunset-in",
-        type=int,
+        type=_days,
         default=0,
         metavar="DAYS",
         help="also report active models whose earliest announced retirement is inside "
@@ -64,7 +88,7 @@ def _add_check_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--locations",
-        type=int,
+        type=_days,
         default=3,
         metavar="N",
         help="how many source locations to print per finding (default: 3)",
@@ -97,7 +121,7 @@ def _add_check_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _Parser(
         prog="depdesk",
         description="Cross the model deprecation notices you did not read with the "
                     "models your code actually calls.",
@@ -142,7 +166,9 @@ def _today(raw: Optional[str]) -> date:
     try:
         return date.fromisoformat(raw)
     except ValueError:
-        raise SystemExit(f"depdesk: --today is not an ISO date: {raw}")
+        # SystemExit with a message exits 1, the code for warnings.
+        print(f"depdesk: --today is not an ISO date: {raw}", file=sys.stderr)
+        raise SystemExit(3)
 
 
 def cmd_check(args: argparse.Namespace) -> int:
@@ -179,6 +205,20 @@ def cmd_check(args: argparse.Namespace) -> int:
         exclude.add(Path(args.usage))
     today = _today(args.today)
     result = scan(roots, catalog, exclude=exclude, exclude_globs=args.exclude, today=today)
+    if result.files_scanned == 0 and any(root.is_dir() for root in roots):
+        # A scan that read nothing used to print "Nothing deprecated found" and
+        # exit 0, which in CI is a pass nobody earned. A single file that turns
+        # out not to be source, which is what pre-commit hands over when only
+        # an image is staged, is fine; a whole directory with nothing readable
+        # means the tool was pointed at the wrong place.
+        where = ", ".join(str(root) for root in roots)
+        print(f"depdesk: no files were read in {where}, so nothing was checked.", file=sys.stderr)
+        if result.files_skipped:
+            print(
+                f"depdesk: {result.files_skipped} file(s) could not be read.",
+                file=sys.stderr,
+            )
+        return 3
     report = build(
         result,
         catalog,
@@ -228,7 +268,9 @@ def cmd_upstream(args: argparse.Namespace) -> int:
             return 3
         save(catalog.path, results, date.today())
         print(f"depdesk: fingerprints written to {catalog.path}", file=sys.stderr)
-        return 0
+        # A source that could not be fetched kept its old fingerprint, and
+        # reporting success here hid that from the person running it.
+        return 3 if len(fetched) < len(results) else 0
 
     return upstream_exit_code(results, strict=args.strict)
 
@@ -286,6 +328,17 @@ COMMANDS = ("check", "upstream", "list")
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     raw: List[str] = list(sys.argv[1:] if argv is None else argv)
+
+    # On Windows a piped stdout uses the locale code page, and one character
+    # it cannot encode, an arrow in a comment the excerpt quotes, crashed the
+    # whole report with a traceback and exit 1.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(errors="replace")
+            except (ValueError, OSError):  # pragma: no cover
+                pass
 
     # `depdesk .` and bare `depdesk` mean `depdesk check`. This has to happen
     # before argparse sees the arguments, because otherwise a path in the

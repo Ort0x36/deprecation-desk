@@ -19,43 +19,63 @@ import hashlib
 import html
 import json
 import re
-import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
+from . import __version__
 from .catalog import Catalog
 
-USER_AGENT = "depdesk/0.2 (+https://github.com/Ort0x36/deprecation-desk)"
+USER_AGENT = f"depdesk/{__version__} (+https://github.com/Ort0x36/deprecation-desk)"
 TIMEOUT = 20
 
 _SCRIPT = re.compile(rb"<(script|style)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
 _COMMENT = re.compile(rb"<!--.*?-->", re.DOTALL)
 _TAG = re.compile(rb"<[^>]+>")
 
-# Identifiers that a provider deprecation page would name.
+# Identifiers that a provider deprecation page would name. The boundaries are
+# the scanner's, not \b: with \b, text-similarity-babbage-001 also produced a  # depdesk: ignore
+# babbage-001 that exists nowhere. gpt-4 and o1 are allowed bare, because the  # depdesk: ignore
+# catalog carries them and the old pattern could not see them, which made them
+# look permanently missing from the page.
 _IDENTIFIER = re.compile(
-    r"\b(?:"
+    r"(?<![A-Za-z0-9_.\-])(?:"
     r"claude-[a-z0-9][a-z0-9.\-]{2,}"
-    r"|gpt-[a-z0-9][a-z0-9.\-]{1,}"
+    r"|gpt-[a-z0-9][a-z0-9.\-]*"
     r"|chatgpt-[a-z0-9][a-z0-9.\-]{1,}"
-    r"|o[1-9](?:-[a-z0-9][a-z0-9.\-]*)+"
-    r"|text-(?:moderation|davinci|curie|babbage|ada)[a-z0-9.\-]*"
+    r"|o[1-9](?:-[a-z0-9][a-z0-9.\-]*)*"
+    r"|text-(?:moderation|davinci|curie|babbage|ada|similarity|search)[a-z0-9.\-]*"
+    r"|code-(?:davinci|cushman|search)[a-z0-9.\-]*"
+    r"|codex-[a-z0-9][a-z0-9.\-]*"
+    r"|computer-use-[a-z0-9][a-z0-9.\-]*"
+    r"|omni-moderation[a-z0-9.\-]*"
     r"|dall-e-[0-9]"
     r"|sora-[0-9][a-z0-9.\-]*"
     r"|whisper-[0-9]"
     r"|babbage-[0-9]{3}|davinci-[0-9]{3}"
-    r")\b",
+    r")(?![A-Za-z0-9_])",
     re.IGNORECASE,
 )
 
-_ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+# Dates in every form the two pages use. The OpenAI tables write "Aug 10,
+# 2026" and a few ISO dates with U+2011 non-breaking hyphens, and neither was
+# extracted, so those rows could change date without the drift job noticing.
+_MONTHS = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+_ISO_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 _LONG_DATE = re.compile(
-    r"\b(?:January|February|March|April|May|June|July|August|September|October|"
-    r"November|December)\s+\d{1,2},\s+\d{4}\b"
+    r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2}),\s+(\d{4})\b"
 )
+
+_TOKENS = re.compile(
+    "(" + _IDENTIFIER.pattern + ")|" + _ISO_DATE.pattern + "|" + _LONG_DATE.pattern, re.IGNORECASE
+)
+
+_HYPHENS = str.maketrans({"‐": "-", "‑": "-", "‒": "-", " ": " "})
 
 # Words that look like an identifier but never are one.
 _NOT_IDENTIFIERS = {"claude-api", "gpt-oss"}  # depdesk: ignore
@@ -74,32 +94,85 @@ class UpstreamResult:
     missing_from_page: List[str] = field(default_factory=list)
     identifiers_seen: int = 0
     error: Optional[str] = None
+    note: Optional[str] = None
 
 
 def to_text(body: bytes) -> str:
     stripped = _TAG.sub(b" ", _COMMENT.sub(b" ", _SCRIPT.sub(b" ", body)))
-    return html.unescape(stripped.decode("utf-8", errors="replace"))
+    return html.unescape(stripped.decode("utf-8", errors="replace")).translate(_HYPHENS)
 
 
-def extract(body: bytes) -> Dict[str, Set[str]]:
+def article(text: str, between: Optional[List[str]]) -> Tuple[str, bool]:
+    """The part of the page that is the deprecation list, and whether it was found.
+
+    Navigation carries model names too: the OpenAI sidebar lists recent blog
+    posts, so a new post title changed the fingerprint and would have opened a
+    drift issue about a page that had not moved. When the markers are missing
+    the whole page is used, and the caller reports that, because it means the
+    page itself was restructured.
+    """
+    if not between:
+        return text, True
+    start, end = between
+    # Each marker has to be unique. An end marker repeated inside the list cut
+    # the tail off without a word, and after one --save that part of the page
+    # was no longer watched.
+    if text.count(start) != 1 or text.count(end) != 1:
+        return text, False
+    begin = text.find(start)
+    finish = text.find(end, begin + 1)
+    if finish < 0:
+        return text, False
+    return text[begin:finish], True
+
+
+def tokens(text: str) -> List[str]:
+    """Identifiers and dates in the order the page gives them.
+
+    The order is the point. Hashing the set of identifiers and the set of
+    dates separately missed a row moving to a date that already appeared
+    elsewhere on the page, which is most shutdown changes: the page is full of
+    the same few dates.
+    """
+    found: List[str] = []
+    for match in _TOKENS.finditer(text):
+        if match.group(1):
+            ident = match.group(1).lower().rstrip(".-")
+            if ident not in _NOT_IDENTIFIERS:
+                found.append("id:" + ident)
+            continue
+        iso = _iso_from_groups(match.groups()[1:])
+        if iso:
+            found.append("date:" + iso)
+    return found
+
+
+def _iso_from_groups(groups: Tuple[Optional[str], ...]) -> Optional[str]:
+    iso_year, iso_month, iso_day, month_name, day, year = groups
+    try:
+        if iso_year is not None:
+            return date(int(iso_year), int(iso_month), int(iso_day)).isoformat()
+        key = month_name.lower().rstrip(".")
+        key = "sept" if key.startswith("sept") else key[:3]
+        return date(int(year), _MONTHS[key], int(day)).isoformat()
+    except (KeyError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def extract(body: bytes, between: Optional[List[str]] = None) -> Dict[str, Set[str]]:
     """The identifiers and dates the page names, which is all we care about."""
-    text = to_text(body)
-    identifiers = {
-        match.group(0).lower()
-        for match in _IDENTIFIER.finditer(text)
-        if match.group(0).lower() not in _NOT_IDENTIFIERS
+    text, _ = article(to_text(body), between)
+    found = tokens(text)
+    return {
+        "identifiers": {t[3:] for t in found if t.startswith("id:")},
+        "dates": {t[5:] for t in found if t.startswith("date:")},
     }
-    dates = set(_ISO_DATE.findall(text)) | set(_LONG_DATE.findall(text))
-    return {"identifiers": identifiers, "dates": dates}
 
 
-def fingerprint(body: bytes) -> str:
-    """Stable across cosmetic redeploys, sensitive to a new model or a new date."""
-    found = extract(body)
-    payload = "\n".join(
-        ["ids:", *sorted(found["identifiers"]), "dates:", *sorted(found["dates"])]
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+def fingerprint(body: bytes, between: Optional[List[str]] = None) -> str:
+    """Stable across cosmetic redeploys, sensitive to a new model or a moved date."""
+    text, _ = article(to_text(body), between)
+    return hashlib.sha256("\n".join(tokens(text)).encode("utf-8")).hexdigest()
 
 
 def fetch(url: str) -> bytes:
@@ -116,26 +189,45 @@ def check(catalog: Catalog) -> List[UpstreamResult]:
         if not url:
             continue
         recorded = source.get("sha256")
+        between = source.get("between")
         try:
             body = fetch(url)
-        except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
+        except Exception as exc:  # noqa: BLE001
+            # Anything that stops the fetch, including a bad URL or a
+            # truncated response, is "could not check" (exit 3). An uncaught
+            # one exited 1, which the drift workflow reads as "the page moved"
+            # and files an issue asking for the catalog to be retranscribed.
             results.append(
                 UpstreamResult(
                     provider=provider, url=url, ok=False,
                     recorded_digest=recorded, verified_on=source.get("verified_on"),
-                    error=str(exc),
+                    error=f"{exc.__class__.__name__}: {exc}",
                 )
             )
             continue
 
-        found = extract(body)
-        on_page = found["identifiers"]
+        text, located = article(to_text(body), between)
+        found = tokens(text)
+        on_page = {t[3:] for t in found if t.startswith("id:")}
+        if not on_page:
+            # An empty JavaScript shell, or a bot challenge served with 200.
+            # Saved as a baseline, it made every later check pass.
+            results.append(
+                UpstreamResult(
+                    provider=provider, url=url, ok=False,
+                    recorded_digest=recorded, verified_on=source.get("verified_on"),
+                    error="the page names no model at all, so it is not the deprecation page "
+                          "(blocked, empty, or moved)",
+                )
+            )
+            continue
+
         # Only models: the regex cannot see an endpoint or a product name, so
         # comparing those would report a difference that does not exist.
         known = {
             e.id.lower()
             for e in catalog.entries
-            if e.provider == provider and e.kind == "model"
+            if e.provider == provider and e.kind == "model" and e.source in (None, url)
         }
         # A model we already name as somebody's replacement is not news either.
         known |= {
@@ -143,7 +235,7 @@ def check(catalog: Catalog) -> List[UpstreamResult]:
             for e in catalog.entries
             if e.provider == provider and e.replacement
         }
-        digest = fingerprint(body)
+        digest = hashlib.sha256("\n".join(found).encode("utf-8")).hexdigest()
 
         results.append(
             UpstreamResult(
@@ -155,8 +247,11 @@ def check(catalog: Catalog) -> List[UpstreamResult]:
                 verified_on=source.get("verified_on"),
                 changed=None if recorded is None else digest != recorded,
                 new_on_page=sorted(on_page - known),
-                missing_from_page=sorted(known - on_page),
+                missing_from_page=sorted(i for i in known - on_page if _IDENTIFIER.fullmatch(i)),
                 identifiers_seen=len(on_page),
+                note=None if located else "the markers around the deprecation list were not "
+                                          "found exactly once, so the page layout changed; the "
+                                          "whole page was used",
             )
         )
     return results
@@ -181,7 +276,7 @@ def render(results: List[UpstreamResult], today: date, limit: int = 12) -> str:
     for result in results:
         lines.append(f"{result.provider}: {result.url}")
         if not result.ok:
-            lines.append(f"  could not fetch: {result.error}")
+            lines.append(f"  could not check: {result.error}")
             lines.append("")
             continue
 
@@ -189,6 +284,8 @@ def render(results: List[UpstreamResult], today: date, limit: int = 12) -> str:
             f"  {result.identifiers_seen} identifier(s) on the page, "
             f"fingerprint {result.digest[:16]}"
         )
+        if result.note:
+            lines.append(f"  note: {result.note}")
         if result.recorded_digest is None:
             lines.append("  no fingerprint recorded yet. Run with --save to record this one.")
         elif result.changed:
@@ -232,12 +329,12 @@ def exit_code(results: List[UpstreamResult], strict: bool = False) -> int:
     """1 means a page moved. Anything looser makes the weekly alarm useless.
 
     The review queue (identifiers the page names and the catalog does not) is
-    a standing condition, not an event: the OpenAI page alone names 35 of them
-    and always will, because a deprecation page also lists models that are not
-    being deprecated. Exiting 1 on that turned the scheduled job into an issue
-    every Monday saying the pages changed when they had not, which is how an
-    alarm stops being read. A model that genuinely starts being deprecated
-    changes the page, and that is what `changed` already catches.
+    a standing condition, not an event: a deprecation page also lists models
+    that are not being deprecated, and always will. Exiting 1 on that turned
+    the scheduled job into an issue every Monday saying the pages changed when
+    they had not, which is how an alarm stops being read. A model that
+    genuinely starts being deprecated changes the page, and that is what
+    `changed` already catches.
     """
     if any(not r.ok for r in results):
         return 3

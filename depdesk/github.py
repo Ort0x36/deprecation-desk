@@ -69,10 +69,14 @@ def annotations(report: Report, limit: int = 3) -> List[str]:
         message = f"{finding.identifier} ({finding.entry.provider}), retirement {_deadline(finding)}."
         if finding.replacement:
             message += f" Replacement: {finding.replacement}."
+            if finding.replacement_note:
+                message += f" That one is {finding.replacement_note}."
         if finding.usage_share is not None:
             message += f" {finding.usage_share * 100:.1f}% of measured calls."
         if finding.locations:
-            for hit in finding.locations[:limit]:
+            # --locations only trims the printed report. With 0 it used to
+            # remove every annotation from a build that was failing.
+            for hit in finding.locations[:max(limit, 1)]:
                 commands.append(_command(level, title, message, hit.path, hit.line))
         else:
             commands.append(_command(level, title, message + " Seen in usage data only."))
@@ -90,6 +94,8 @@ def annotations(report: Report, limit: int = 3) -> List[str]:
         commands.append(
             _command(level, "depdesk: deprecated parameter", message, hit.path, hit.line)
         )
+    for path, reason in report.skipped:
+        commands.append(_command("warning", "depdesk: file not read", f"Not scanned: {reason}.", path))
     return commands
 
 
@@ -136,12 +142,21 @@ def summary(report: Report) -> str:
             )
         lines.append("")
 
+    if report.skipped:
+        lines.append(f"{len(report.skipped)} file(s) could not be read and were not scanned:")
+        lines.append("")
+        for path, reason in report.skipped[:10]:
+            lines.append(f"- `{_cell(_relative(path))}`: {reason}")
+        if len(report.skipped) > 10:
+            lines.append(f"- and {len(report.skipped) - 10} more")
+        lines.append("")
+
     unknown = len(report.findings) - len(known)
     if unknown:
         lines.append(f"{unknown} identifier(s) not in the catalog are listed in the job log.")
         lines.append("")
 
-    if not known and not report.param_hits:
+    if not known and not report.param_hits and not report.skipped:
         lines.append("Nothing deprecated found.")
     elif report.exit_code() == 0:
         lines.append(
