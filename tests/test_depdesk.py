@@ -456,3 +456,15 @@ def test_github_summary_is_written_and_json_stays_clean(tmp_path, monkeypatch, c
     main(["check", str(tmp_path / "src"), "--no-github", "--today", "2026-09-20"])
     assert "::error" not in capsys.readouterr().out
     assert not target.exists()
+
+
+def test_short_aliases_do_not_match_inside_longer_ids(tmp_path):
+    # gpt-4 and o1 entered the catalog in 0.2.0, when the OpenAI page started
+    # listing aliases next to each snapshot. Short ids are the ones that would
+    # light up inside every newer model name if the boundaries were loose.
+    _write(tmp_path, "a.py", 'A = "gpt-4o"\nB = "gpt-4.1"\nC = "gpt-4-turbo-preview"\nD = "o1-mini"\n')
+    ids = {f.identifier for f in _report(tmp_path).findings}
+    assert "gpt-4" not in ids and "o1" not in ids
+    _write(tmp_path, "b.py", 'M = "gpt-4"\n')
+    finding = next(f for f in _report(tmp_path).findings if f.identifier == "gpt-4")
+    assert finding.severity == "due" and finding.replacement == "gpt-5.6-sol"

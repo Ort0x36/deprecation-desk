@@ -308,10 +308,10 @@ and is not, which is the exact failure this tool exists to prevent.
 
 `upstream` exits 1 when a page moved, 3 when it could not be fetched, and 0
 otherwise. It prints, but does not fail on, the identifiers a page names that
-the catalog does not mention: the OpenAI page alone names 35 of those and
-always will, because a deprecation page also lists models that are not being
-deprecated. That is a standing difference, not an event, and a weekly alarm
-that fires on it stops being read. Pass `--strict` if you do want those to
+the catalog does not mention: the OpenAI page alone names about twenty of
+those and always will, because a deprecation page also lists models that are
+not being deprecated. That is a standing difference, not an event, and a weekly
+alarm that fires on it stops being read. Pass `--strict` if you do want those to
 fail.
 
 This repository runs `upstream` every Monday and

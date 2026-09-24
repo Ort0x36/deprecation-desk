@@ -22,6 +22,15 @@
 - The action takes `strict: "true"`.
 - JSON findings say whether each one fails the build (`fails_build`), and the
   report carries `fail_in` and `strict`.
+- Catalog verified again on 2026-09-24, because both provider pages moved
+  since the last release. Anthropic lists `claude-opus-5-5`, which is also
+  covered by the `temperature`/`top_p`/`top_k` rule. The OpenAI page names
+  the aliases next to each snapshot and the substitute for every legacy audio
+  and realtime model, so the catalog gained `gpt-4`, `gpt-3.5-turbo`, `o1`,
+  `o1-pro`, `o3-mini`, `o4-mini` and the other aliases shutting down on
+  2026-10-23, plus the replacements it was missing. `o3-mini-2025-01-31` now
+  points at `gpt-5.6-sol`, as the page says. Code that calls `gpt-4` or
+  `o4-mini` by alias passed the check before this release.
 
 ## 0.1.4
 
