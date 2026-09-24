@@ -16,6 +16,14 @@ from .scan import Hit, ParamHit, ScanResult, rule_for
 # Order matters: it is the order findings are printed in.
 SEVERITIES = ("retired", "due", "deprecated", "sunset", "review", "unknown")
 
+# What fails the build. Up to 0.1.4 a deprecation outside the --fail-in window
+# exited 1, and since CI, the action and pre-commit all fail on any non zero
+# code, --fail-in decided nothing: a model retiring in five months broke the
+# build exactly like one retiring tomorrow. Now the window is the line, and
+# --strict brings the softer findings back in for whoever wants that.
+FAILING = ("retired", "due")
+WARNING = ("deprecated", "sunset")
+
 _LABELS = {
     "retired": "ALREADY RETIRED",
     "due": "RETIRES SOON",
@@ -69,6 +77,8 @@ class Report:
     roots: List[Path]
     usage_column: Optional[str] = None
     usage_ignored: List[str] = field(default_factory=list)
+    fail_in: int = 90
+    strict: bool = False
 
     @property
     def worst(self) -> Optional[str]:
@@ -77,14 +87,25 @@ class Report:
                 return severity
         return None
 
+    def fails(self, finding: "Finding") -> bool:
+        return finding.severity in FAILING or (self.strict and finding.severity in WARNING)
+
+    def param_fails(self, hit: ParamHit) -> bool:
+        return hit.certain or self.strict
+
+    @property
+    def warnings(self) -> int:
+        """Findings worth reading that do not fail the build on their own."""
+        soft = sum(1 for f in self.findings if f.severity in WARNING)
+        soft += sum(1 for h in self.param_hits if not h.certain)
+        return soft
+
     def exit_code(self) -> int:
-        if any(f.severity in ("retired", "due") for f in self.findings):
+        if any(f.severity in FAILING for f in self.findings):
             return 2
-        if any(f.severity in ("deprecated", "sunset") for f in self.findings):
-            return 1
         if any(hit.certain for hit in self.param_hits):
             return 2
-        if self.param_hits:
+        if self.strict and self.warnings:
             return 1
         return 0
 
@@ -100,6 +121,7 @@ def build(
     usage_column: Optional[str] = None,
     roots: Optional[List[Path]] = None,
     include_unknown: bool = True,
+    strict: bool = False,
 ) -> Report:
     index = catalog.by_id
     grouped = dict(scan_result.by_identifier())
@@ -188,6 +210,8 @@ def build(
         roots=roots or [],
         usage_column=usage_column,
         usage_ignored=usage_ignored,
+        fail_in=fail_in,
+        strict=strict,
     )
 
 
@@ -327,6 +351,13 @@ def render_text(report: Report, show_locations: int = 3, stream=None) -> str:
     summary = ", ".join(f"{count} {_LABELS[sev].lower()}" for sev, count in
                         sorted(counts.items(), key=lambda kv: SEVERITIES.index(kv[0])))
     lines.append(f"Summary: {summary or 'nothing to report'}.")
+    if report.warnings and report.exit_code() == 0:
+        # Without this line a list of deprecations followed by a green build
+        # reads like a bug in the tool.
+        lines.append(
+            f"Nothing above retires within {report.fail_in} days or is certain to break, "
+            "so the build passes. Pass --strict to fail on it too."
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -342,10 +373,13 @@ def render_json(report: Report) -> str:
         "scanned_files": report.scanned,
         "roots": [str(r) for r in report.roots],
         "exit_code": report.exit_code(),
+        "fail_in": report.fail_in,
+        "strict": report.strict,
         "findings": [
             {
                 "identifier": f.identifier,
                 "severity": f.severity,
+                "fails_build": report.fails(f),
                 "provider": f.entry.provider if f.entry else None,
                 "kind": f.entry.kind if f.entry else None,
                 "status": f.entry.status if f.entry else None,
@@ -375,6 +409,7 @@ def render_json(report: Report) -> str:
                 "excerpt": h.excerpt,
                 "models_in_file": h.models_in_file,
                 "scope_certain": h.certain,
+                "fails_build": report.param_fails(h),
             }
             for h in report.param_hits
         ],

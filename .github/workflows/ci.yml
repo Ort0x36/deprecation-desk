@@ -66,3 +66,33 @@ jobs:
         with:
           path: depdesk
           fail-in: "60"
+
+      - name: A deprecation outside the window, for the two runs below
+        # whisper-1 retires 2027-02-26. The date is pinned with --today so
+        # this does not turn into a failure the week it enters the window.
+        run: |
+          mkdir -p far-sample
+          echo 'M = "whisper-1"' > far-sample/app.py
+
+      - name: Outside the window it warns and passes
+        uses: ./
+        with:
+          path: far-sample
+          fail-in: "60"
+          args: --today 2026-09-20
+
+      - id: strict
+        continue-on-error: true
+        uses: ./
+        with:
+          path: far-sample
+          fail-in: "60"
+          strict: "true"
+          args: --today 2026-09-20
+
+      - name: With strict the same warning has to fail
+        run: |
+          if [ "${{ steps.strict.outcome }}" != "failure" ]; then
+            echo "strict passed a deprecated model"
+            exit 1
+          fi

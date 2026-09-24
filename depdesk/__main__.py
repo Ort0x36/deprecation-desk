@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from . import __version__
+from . import __version__, github
 from .catalog import CatalogError, load
 from .report import build, render_json, render_text
 from .scan import scan
@@ -17,13 +17,15 @@ from .usage import UsageError, load_usage, share
 
 EPILOG = """\
 exit codes:
-  0  nothing needs attention
-  1  something is deprecated, but outside the --fail-in window
-  2  something is already retired, or retires within --fail-in
+  0  nothing fails the build; deprecations further out than --fail-in are
+     still printed, as warnings
+  1  only with --strict: a warning that would otherwise pass
+  2  something is already retired, retires within --fail-in, or passes a
+     parameter the model rejects
   3  the tool could not do its job (bad catalog, unreadable usage file)
 
 The exit codes are the point: put `depdesk check` in CI and the build starts
-failing the day a provider gives you notice, not the day the model dies.
+failing while there is still time to migrate, not the day the model dies.
 """
 
 
@@ -47,6 +49,12 @@ def _add_check_arguments(parser: argparse.ArgumentParser) -> None:
         help="treat a retirement inside this many days as failing (default: 90)",
     )
     parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="also exit 1 on warnings: deprecations outside --fail-in, announced "
+             "sunsets and parameters whose scope is uncertain",
+    )
+    parser.add_argument(
         "--sunset-in",
         type=int,
         default=0,
@@ -62,6 +70,11 @@ def _add_check_arguments(parser: argparse.ArgumentParser) -> None:
         help="how many source locations to print per finding (default: 3)",
     )
     parser.add_argument("--json", action="store_true", help="machine readable output")
+    parser.add_argument(
+        "--no-github",
+        action="store_true",
+        help="inside GitHub Actions, do not write annotations or the job summary",
+    )
     parser.add_argument(
         "--no-unknown",
         action="store_true",
@@ -164,11 +177,12 @@ def cmd_check(args: argparse.Namespace) -> int:
     exclude = {catalog.path}
     if args.usage:
         exclude.add(Path(args.usage))
-    result = scan(roots, catalog, exclude=exclude, exclude_globs=args.exclude)
+    today = _today(args.today)
+    result = scan(roots, catalog, exclude=exclude, exclude_globs=args.exclude, today=today)
     report = build(
         result,
         catalog,
-        today=_today(args.today),
+        today=today,
         fail_in=args.fail_in,
         sunset_in=args.sunset_in,
         usage=totals,
@@ -176,12 +190,17 @@ def cmd_check(args: argparse.Namespace) -> int:
         usage_column=column,
         roots=roots,
         include_unknown=not args.no_unknown,
+        strict=args.strict,
     )
 
     if args.json:
         sys.stdout.write(render_json(report))
     else:
         sys.stdout.write(render_text(report, show_locations=args.locations))
+    if github.enabled() and not args.no_github:
+        # No annotations in JSON mode: they go to stdout, and a workflow that
+        # pipes the JSON into jq would choke on them.
+        github.emit(report, sys.stdout, limit=args.locations, annotate=not args.json)
     return report.exit_code()
 
 

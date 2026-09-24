@@ -10,9 +10,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from depdesk import catalog as catalog_mod  # noqa: E402
+from depdesk import github  # noqa: E402
 from depdesk.__main__ import main  # noqa: E402
 from depdesk.report import build, render_json, render_text  # noqa: E402
-from depdesk.scan import scan  # noqa: E402
+from depdesk.scan import is_ignored, scan  # noqa: E402
 from depdesk.upstream import UpstreamResult, exit_code, fingerprint  # noqa: E402
 from depdesk.usage import load_usage, share  # noqa: E402
 
@@ -30,10 +31,10 @@ def _write(tmp_path: Path, name: str, body: str) -> Path:
     return path
 
 
-def _report(tmp_path: Path, fail_in: int = 90, **kwargs):
+def _report(tmp_path: Path, fail_in: int = 90, today: date = TODAY, **kwargs):
     cat = _catalog()
-    result = scan([tmp_path], cat)
-    return build(result, cat, today=TODAY, fail_in=fail_in, sunset_in=0, roots=[tmp_path], **kwargs)
+    result = scan([tmp_path], cat, today=today)
+    return build(result, cat, today=today, fail_in=fail_in, sunset_in=0, roots=[tmp_path], **kwargs)
 
 
 def test_catalog_loads_and_is_consistent():
@@ -107,7 +108,8 @@ def test_parameter_rule_uncertain_scope_is_softer(tmp_path):
     _write(tmp_path, "grey.py", 'M = "claude-sonnet-5"\nclient.create(model=M, top_p=0.9)\n')
     report = _report(tmp_path)
     assert report.param_hits and report.param_hits[0].certain is False
-    assert report.exit_code() == 1  # review, not failure
+    assert report.exit_code() == 0  # review, not failure
+    assert _report(tmp_path, strict=True).exit_code() == 1
 
 
 def test_skips_vendor_directories(tmp_path):
@@ -314,3 +316,143 @@ def test_the_two_version_literals_agree():
     pyproject = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text()
     declared = re.search(r'^version = "([^"]+)"', pyproject, re.M).group(1)
     assert depdesk.__version__ == declared
+
+
+# 0.2.0: o --fail-in passou a decidir o que derruba o build.
+
+def test_deprecation_outside_the_window_does_not_fail_the_build(tmp_path):
+    # Up to 0.1.4 this exited 1, and CI fails on any non zero code, so a model
+    # retiring in five months broke the build exactly like one retiring
+    # tomorrow and --fail-in decided nothing.
+    _write(tmp_path, "a.py", 'M = "gpt-image-1.5"\n')  # retires 2026-12-01, 72 days out
+    report = _report(tmp_path, fail_in=30)
+    assert report.findings[0].severity == "deprecated"
+    assert report.exit_code() == 0
+    assert "the build passes" in render_text(report)
+
+
+def test_strict_fails_on_warnings_but_never_softens_a_failure(tmp_path):
+    _write(tmp_path, "a.py", 'M = "gpt-image-1.5"\n')
+    assert _report(tmp_path, fail_in=30, strict=True).exit_code() == 1
+    _write(tmp_path, "b.py", 'M = "claude-opus-4-1-20250805"\n')
+    assert _report(tmp_path, fail_in=30, strict=True).exit_code() == 2
+
+
+def test_cli_strict_flag(tmp_path, capsys):
+    _write(tmp_path, "a.py", 'M = "gpt-image-1.5"\n')
+    args = ["check", str(tmp_path), "--fail-in", "30", "--today", "2026-09-20"]
+    assert main(args) == 0
+    assert main(args + ["--strict"]) == 1
+    capsys.readouterr()
+
+
+def test_json_says_what_fails_the_build(tmp_path):
+    _write(tmp_path, "a.py", 'A = "gpt-image-1.5"\nB = "claude-opus-4-1-20250805"\n')
+    payload = json.loads(render_json(_report(tmp_path, fail_in=30)))
+    verdicts = {f["identifier"]: f["fails_build"] for f in payload["findings"]}
+    assert verdicts == {"claude-opus-4-1-20250805": True, "gpt-image-1.5": False}
+    assert payload["fail_in"] == 30 and payload["strict"] is False
+
+
+# 0.2.0: ignore com validade.
+
+def test_ignore_until_holds_before_the_date_and_lapses_on_it():
+    line = 'M = "claude-opus-4-1-20250805"  # depdesk: ignore until=2026-12-01'
+    assert is_ignored(line, date(2026, 11, 30)) is True
+    assert is_ignored(line, date(2026, 12, 1)) is False
+    assert is_ignored('M = "x"  # depdesk: ignore', date(2099, 1, 1)) is True
+
+
+def test_ignore_until_with_a_bad_date_silences_nothing():
+    # A typo in the date must not become the permanent exception the date was
+    # written to prevent.
+    today = date(2026, 9, 20)
+    assert is_ignored("x  # depdesk: ignore until=2026-13-01", today) is False
+    assert is_ignored("x  # depdesk: ignore until=next-week", today) is False
+    assert is_ignored("x  # depdesk: ignore until=", today) is False
+
+
+def test_ignore_until_inside_a_markdown_comment(tmp_path):
+    _write(
+        tmp_path,
+        "notes.md",
+        'Still on "claude-opus-4-1-20250805".  <!-- depdesk: ignore until=2026-12-01-->\n',
+    )
+    assert _report(tmp_path).findings == []
+    expired = _report(tmp_path, today=date(2026, 12, 1))
+    assert [f.identifier for f in expired.findings] == ["claude-opus-4-1-20250805"]
+
+
+def test_ignore_until_follows_the_today_flag(tmp_path, capsys):
+    # `--today` answers "what breaks later", and an ignore that will have
+    # expired by then is part of that answer.
+    _write(
+        tmp_path,
+        "a.py",
+        'M = "claude-opus-4-1-20250805"  # depdesk: ignore until=2026-12-01\n',
+    )
+    assert main(["check", str(tmp_path), "--today", "2026-09-20"]) == 0
+    assert main(["check", str(tmp_path), "--today", "2026-12-01"]) == 2
+    capsys.readouterr()
+
+
+def test_ignore_until_applies_to_parameters_too(tmp_path):
+    _write(
+        tmp_path,
+        "a.py",
+        'M = "claude-opus-5"\n'
+        "client.messages.create(model=M, temperature=0)  # depdesk: ignore until=2026-10-01\n",
+    )
+    assert _report(tmp_path).param_hits == []
+    assert len(_report(tmp_path, today=date(2026, 10, 1)).param_hits) == 1
+
+
+# 0.2.0: anotacoes e resumo no GitHub Actions.
+
+def test_github_is_only_on_inside_actions():
+    assert github.enabled({"GITHUB_ACTIONS": "true"}) is True
+    assert github.enabled({}) is False
+    assert github.enabled({"GITHUB_ACTIONS": "false"}) is False
+
+
+def test_github_annotations_level_follows_the_verdict(tmp_path, monkeypatch):
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(tmp_path))
+    _write(tmp_path, "app/a.py", 'A = "gpt-image-1.5"\nB = "claude-opus-4-1-20250805"\nC = "claude-quasar-9"\n')
+    commands = github.annotations(_report(tmp_path, fail_in=30))
+    assert len(commands) == 2  # the unknown identifier stays in the log
+    retired = next(c for c in commands if "claude-opus-4-1" in c)
+    assert retired.startswith("::error file=app/a.py,line=2,title=depdesk%3A already retired::")
+    assert "Replacement: claude-opus-4-8." in retired
+    warned = next(c for c in commands if "gpt-image-1.5" in c)
+    assert warned.startswith("::warning file=app/a.py,line=1,")
+
+    strict = github.annotations(_report(tmp_path, fail_in=30, strict=True))
+    assert all(c.startswith("::error") for c in strict)
+
+
+def test_github_annotation_escapes_what_would_break_the_command():
+    command = github._command("error", "a: b, c", "50% of\ncalls")
+    assert command == "::error title=a%3A b%2C c::50%25 of%0Acalls"
+
+
+def test_github_summary_is_written_and_json_stays_clean(tmp_path, monkeypatch, capsys):
+    target = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(target))
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(tmp_path))
+    _write(tmp_path, "src/a.py", 'M = "claude-opus-4-1-20250805"\n')
+
+    assert main(["check", str(tmp_path / "src"), "--today", "2026-09-20"]) == 2
+    out = capsys.readouterr().out
+    assert "::error file=src/a.py,line=1," in out
+    text = target.read_text()
+    assert "| fails | `claude-opus-4-1-20250805` |" in text
+    assert "Exit code 2: the build fails." in text
+
+    main(["check", str(tmp_path / "src"), "--json", "--today", "2026-09-20"])
+    json.loads(capsys.readouterr().out)  # would raise if an annotation leaked in
+
+    target.unlink()
+    main(["check", str(tmp_path / "src"), "--no-github", "--today", "2026-09-20"])
+    assert "::error" not in capsys.readouterr().out
+    assert not target.exists()

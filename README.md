@@ -130,15 +130,19 @@ scanning the whole tree is CI's job.
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/Ort0x36/deprecation-desk
-    rev: v0.1.4
+    rev: v0.2.0
     hooks:
       - id: depdesk
 ```
 
 ## Put it in CI
 
-This is the point of the exit codes: the build starts failing the day a
-provider gives you notice, not the day the model dies.
+This is the point of the exit codes: the build starts failing while there is
+still time to migrate, not the day the model dies. `--fail-in` is where that
+line sits. Anything already retired, or retiring inside the window, fails.
+Anything deprecated but further out is printed as a warning and the build
+passes, so a model with five months left does not block every merge from the
+day it is announced.
 
 ```yaml
 # .github/workflows/depdesk.yml
@@ -166,15 +170,22 @@ There is also an action, if you prefer it to the two lines above:
         with:
           path: .
           fail-in: "60"
+          # strict: "true"
           # usage: usage.csv
 ```
 
 | code | meaning |
 | --- | --- |
-| 0 | nothing needs attention |
-| 1 | something is deprecated, but outside the `--fail-in` window |
-| 2 | something is already retired, or retires within `--fail-in` |
+| 0 | nothing fails the build. Deprecations further out than `--fail-in` are still printed, as warnings |
+| 1 | only with `--strict`: there are warnings, and you asked for them to fail |
+| 2 | something is already retired, retires within `--fail-in`, or passes a parameter the model rejects |
 | 3 | the tool could not do its job |
+
+Inside GitHub Actions every finding also becomes an annotation on the line
+that uses it, visible in the pull request, and the job summary gets a table of
+what fails and what only warns. That matters most for the warnings: nobody
+opens the log of a green build. It turns itself on when `GITHUB_ACTIONS` is
+set, with no configuration; `--no-github` turns it off.
 
 ## Weight it by real traffic
 
@@ -234,6 +245,17 @@ OLD = "claude-opus-4-1-20250805"  # depdesk: ignore
 depdesk check . --exclude "CHANGELOG.md" --exclude "*/migrations/*"
 ```
 
+When the fix is postponed rather than refused, give the ignore a date. The
+line counts again from that day, so the exception cannot quietly become
+permanent:
+
+```python
+OLD = "claude-opus-4-1-20250805"  # depdesk: ignore until=2026-12-01
+```
+
+A date that does not parse silences nothing, so a typo shows up as a finding
+instead of hiding one forever. `--today` applies to it too.
+
 The marker silences one line, in any file type, in whatever comment syntax that
 file uses, because it is matched as text. `--exclude` takes a glob, matched
 against the path and the file name, and repeats. Neither has a project level
@@ -251,12 +273,14 @@ depdesk list                  print the catalog
 | flag on `check` | what it does |
 | --- | --- |
 | `--fail-in DAYS` | how close a retirement has to be to fail the build (default 90) |
+| `--strict` | also fail, with exit 1, on warnings: deprecations outside the window, sunsets, uncertain parameters |
 | `--sunset-in DAYS` | also report active models with an announced earliest retirement inside this window |
 | `--usage FILE` | weight findings by real call volume |
 | `--usage-model-column`, `--usage-count-column` | override the sniffed columns |
 | `--today YYYY-MM-DD` | ask what this repository looks like on a future date |
 | `--locations N` | how many source lines to print per finding (default 3) |
 | `--json` | machine readable output |
+| `--no-github` | inside GitHub Actions, skip the annotations and the job summary |
 | `--exclude GLOB` | skip paths matching this glob, repeatable |
 | `--no-unknown` | stop reporting identifiers the catalog does not know |
 | `--catalog FILE` | use your own catalog, for a provider we do not cover |

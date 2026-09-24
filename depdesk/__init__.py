@@ -1,3 +1,3 @@
 """depdesk: know which of your model calls are on a clock."""
 
-__version__ = "0.1.4"
+__version__ = "0.2.0"

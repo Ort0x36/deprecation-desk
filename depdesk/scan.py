@@ -7,6 +7,7 @@ import fnmatch
 import json
 import re
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Set
 
@@ -38,7 +39,34 @@ MAX_BYTES = 2_000_000
 # A line carrying this marker is not scanned. Documentation, changelogs and
 # migration notes legitimately name models that are dead, and a tool you
 # cannot silence on a known-good line is a tool people stop running.
-IGNORE_PRAGMA = "depdesk: ignore"
+#
+# `depdesk: ignore until=2026-12-01` silences the line only until that date.
+# A permanent ignore is how an exception turns into debt nobody remembers, so
+# the date form is the one to reach for when the fix is merely postponed. The
+# date is tried first so that `until=2026-12-01-->` in a markdown comment still
+# parses; anything else after `until=` is captured so it can be refused below.
+_PRAGMA = re.compile(r"depdesk:\s*ignore(?:\s+until=(\d{4}-\d{2}-\d{2}(?!\d)|\S*))?")
+
+
+def is_ignored(line: str, today: date) -> bool:
+    """Whether the pragma on this line still silences it on `today`.
+
+    An `until=` that is not a real date does not silence anything. Treating it
+    as a plain ignore would turn a typo into a permanent exception, which is
+    exactly what the date was written to prevent. The line gets scanned, and
+    the pragma shows up in the excerpt next to the finding it failed to hide.
+    """
+    match = _PRAGMA.search(line)
+    if match is None:
+        return False
+    raw = match.group(1)
+    if raw is None:
+        return True
+    try:
+        until = date.fromisoformat(raw)
+    except ValueError:
+        return False
+    return today < until
 
 # Identifiers that look like a hosted model but are not in the catalog. Kept
 # deliberately loose: a false "unknown" is cheap, a missed one is not.
@@ -211,7 +239,12 @@ def scan(
     catalog: Catalog,
     exclude: Optional[Set[Path]] = None,
     exclude_globs: Optional[Sequence[str]] = None,
+    today: Optional[date] = None,
 ) -> ScanResult:
+    # The date matters for `ignore until=`, and it has to be the same date the
+    # report uses, so that `--today 2027-01-01` also shows the ignores that
+    # will have expired by then.
+    today = today or date.today()
     known_ids = {entry.id for entry in catalog.entries}
     id_pattern = _build_id_pattern(known_ids)
 
@@ -243,7 +276,7 @@ def scan(
         file_ids: Set[str] = set()
         if id_pattern is not None:
             for index, line in enumerate(lines, start=1):
-                if IGNORE_PRAGMA in line:
+                if is_ignored(line, today):
                     continue
                 for match in id_pattern.finditer(line):
                     identifier = match.group(1)
@@ -253,7 +286,7 @@ def scan(
         # Identifiers that look like models but are not in the catalog. We
         # cannot tell the user anything about these, and saying so is the point.
         for index, line in enumerate(lines, start=1):
-            if IGNORE_PRAGMA in line:
+            if is_ignored(line, today):
                 continue
             for pattern in UNKNOWN_PATTERNS:
                 for match in pattern.finditer(line):
@@ -279,7 +312,7 @@ def scan(
                     occurrences = _find_params_text(text, param_names)
                 for name, line_no in occurrences:
                     line_text = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
-                    if IGNORE_PRAGMA in line_text:
+                    if is_ignored(line_text, today):
                         continue
                     param_hits.append(
                         ParamHit(

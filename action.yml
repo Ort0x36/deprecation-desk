@@ -15,6 +15,10 @@ inputs:
     description: Treat a retirement inside this many days as failing
     required: false
     default: "90"
+  strict:
+    description: Also fail on warnings, meaning deprecations further out than fail-in
+    required: false
+    default: "false"
   usage:
     description: CSV or JSON export of real call volume, to weight each finding by traffic
     required: false
@@ -59,10 +63,14 @@ runs:
         DEPDESK_PATH: ${{ inputs.path }}
         DEPDESK_FAIL_IN: ${{ inputs.fail-in }}
         DEPDESK_USAGE: ${{ inputs.usage }}
+        DEPDESK_STRICT: ${{ inputs.strict }}
         DEPDESK_ARGS: ${{ inputs.args }}
       run: |
         set -euo pipefail
         extra=()
+        if [ "$DEPDESK_STRICT" = "true" ]; then
+          extra+=(--strict)
+        fi
         if [ -n "$DEPDESK_USAGE" ]; then
           extra+=(--usage "$DEPDESK_USAGE")
         fi

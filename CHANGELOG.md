@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.2.0
+
+- `--fail-in` decides what fails the build, which is what the README always
+  said it did. Up to 0.1.4 a deprecation outside the window exited 1, and CI,
+  the action and pre-commit all fail on any non zero code, so a model retiring
+  in five months broke the build exactly like one retiring tomorrow. Now
+  anything already retired or retiring inside the window exits 2, as before,
+  and anything further out is printed as a warning and exits 0. This changes
+  the exit code for the softer findings, hence the minor version. `--strict`
+  brings back a failure on warnings, with exit 1, for whoever wants every
+  deprecation to block.
+- Inside GitHub Actions, findings become annotations on the line that uses
+  them and a table in the job summary. With warnings no longer failing the
+  build, they needed somewhere to be seen other than the log of a green job.
+  On by default when `GITHUB_ACTIONS` is set; `--no-github` turns it off. The
+  JSON output never carries annotations, so piping it into jq keeps working.
+- `depdesk: ignore until=2026-12-01` silences a line only until that date, so a
+  postponed fix cannot quietly turn into a permanent exception. A date that
+  does not parse silences nothing, and `--today` applies to it.
+- The action takes `strict: "true"`.
+- JSON findings say whether each one fails the build (`fails_build`), and the
+  report carries `fail_in` and `strict`.
+
 ## 0.1.4
 
 - Words people actually search for, in the places that get indexed. The

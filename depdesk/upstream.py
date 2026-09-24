@@ -28,7 +28,7 @@ from typing import Dict, List, Optional, Set
 
 from .catalog import Catalog
 
-USER_AGENT = "depdesk/0.1 (+https://github.com/Ort0x36/deprecation-desk)"
+USER_AGENT = "depdesk/0.2 (+https://github.com/Ort0x36/deprecation-desk)"
 TIMEOUT = 20
 
 _SCRIPT = re.compile(rb"<(script|style)\b[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
